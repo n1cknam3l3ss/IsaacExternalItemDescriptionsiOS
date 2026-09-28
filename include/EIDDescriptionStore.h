@@ -42,6 +42,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable EIDDescription *)descriptionForCollectibleID:(NSInteger)collectibleID;
 - (nullable EIDDescription *)descriptionForPickupVariant:(NSInteger)variant
                                                   subtype:(NSInteger)subtype;
+- (nullable NSString *)carBatterySynergyForActiveCollectibleID:(NSInteger)collectibleID;
+- (nullable NSString *)tarotClothBuffForCardID:(NSInteger)cardID;
 @end
 
 NS_ASSUME_NONNULL_END

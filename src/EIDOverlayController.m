@@ -5,6 +5,7 @@
 #import "EIDTransformationProgress.h"
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 
 static const CGFloat EIDDefaultOverlayLeftMargin = 140.0;
 static const CGFloat EIDDefaultOverlayTopMargin = 50.0;
@@ -587,6 +588,9 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     for (EIDPickupIdentity *item in items) {
         [signature appendFormat:@"%ld:%ld,", (long)item.variant, (long)item.subtype];
     }
+    for (EIDPickupIdentity *item in self.probe.smeltedTrinketItems) {
+        [signature appendFormat:@"s%ld,", (long)item.subtype];
+    }
     EIDTransformationProgress *tracker = [EIDTransformationProgress shared];
     tracker.probe = self.probe;
     for (NSNumber *identifier in tracker.allTransformationIdentifiers) {
@@ -664,15 +668,30 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
         else [pockets addObject:item];
     }
 
+    NSArray<EIDPickupIdentity *> *heldTrinkets = self.probe.heldTrinketItems ?: @[];
+    NSArray<EIDPickupIdentity *> *smeltedTrinkets = self.probe.smeltedTrinketItems ?: @[];
+
     BOOL russian = [self.store.languageCode isEqualToString:@"ru"];
     CGFloat width = self.inventoryScrollView.bounds.size.width;
     CGFloat y = 0;
-    NSArray<NSDictionary *> *sections = @[
-        @{@"title": russian ? @"Предметы" : @"Collectibles", @"items": collectibles},
-        @{@"title": russian ? @"Брелоки" : @"Trinkets", @"items": trinkets},
-        @{@"title": russian ? @"Карты, руны и таблетки" : @"Cards, runes & pills",
-          @"items": pockets},
-    ];
+    NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
+    if (collectibles.count) {
+        [sections addObject:@{@"title": russian ? @"Предметы" : @"Collectibles", @"items": collectibles}];
+    }
+    if (smeltedTrinkets.count > 0 || heldTrinkets.count > 0) {
+        if (heldTrinkets.count) {
+            [sections addObject:@{@"title": russian ? @"Брелоки (экипированы)" : @"Trinkets (Held)", @"items": heldTrinkets}];
+        }
+        if (smeltedTrinkets.count) {
+            [sections addObject:@{@"title": russian ? @"Проглоченные брелоки" : @"Smelted Trinkets", @"items": smeltedTrinkets}];
+        }
+    } else if (trinkets.count) {
+        [sections addObject:@{@"title": russian ? @"Брелоки" : @"Trinkets", @"items": trinkets}];
+    }
+    if (pockets.count) {
+        [sections addObject:@{@"title": russian ? @"Карты, руны и таблетки" : @"Cards, runes & pills",
+                              @"items": pockets}];
+    }
     for (NSDictionary *section in sections) {
         NSArray<EIDPickupIdentity *> *sectionItems = section[@"items"];
         if (!sectionItems.count) continue;
@@ -872,6 +891,233 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     return image;
 }
 
+static NSDictionary<NSNumber *, NSArray<NSNumber *> *> *EIDWeaponOverridesTable(void) {
+    static NSDictionary *table;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        table = @{
+            @579: @[@52, @69, @118, @168, @229, @316, @329, @379, @394, @395, @397, @440, @556, @597], // Spirit Sword
+            @168: @[@374, @429, @553, @572, @678], // Epic Fetus
+            @678: @[@69, @229, @316, @329, @397, @410, @533, @572, @597], // C-Section
+            @52:  @[@68, @118, @374, @401, @429, @444, @461, @572, @597, @637], // Dr. Fetus
+            @114: @[@5, @69, @132, @221, @224, @316, @379, @401, @410, @459, @461, @462, @529, @532, @533, @572, @597], // Mom's Knife
+            @118: @[@316, @379, @410, @440, @453, @461, @462, @524, @533, @540, @597], // Brimstone
+            @395: @[@5, @69, @104, @233, @316, @329, @379, @397, @410, @453, @461, @524, @529, @532, @533, @540, @572, @597], // Tech X
+            @68:  @[@410, @462, @524, @533, @540, @597], // Technology
+            @329: @[@69, @222, @224, @316, @394, @397, @410, @532], // Ludovico
+            @561: @[@330], // Almond Milk
+        };
+    });
+    return table;
+}
+
+static NSArray<NSNumber *> *EIDAzazelOverriddenList(void) {
+    static NSArray *list;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        list = @[@316, @379, @410, @440, @453, @461, @462, @524, @533, @540, @597];
+    });
+    return list;
+}
+
+static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
+    static NSArray *list;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        list = @[@579, @168, @52, @114, @531];
+    });
+    return list;
+}
+
+- (NSString *)enrichDescription:(NSString *)originalDetail
+                      forPickup:(EIDPickupIdentity *)pickup
+                 displaySubtype:(NSInteger)displaySubtype {
+    __block NSString *detail = originalDetail ?: @"";
+    NSMutableSet<NSString *> *addedLines = [NSMutableSet set];
+    void (^appendLine)(NSString *) = ^(NSString *line) {
+        if (!line.length || [addedLines containsObject:line]) return;
+        [addedLines addObject:line];
+        if (detail.length == 0) {
+            detail = line;
+        } else {
+            detail = [detail stringByAppendingFormat:@"#%@", line];
+        }
+    };
+
+    NSArray<EIDPickupIdentity *> *inventory = [self.probe currentInventoryItems];
+    NSInteger playerType = self.probe.primaryPlayerType;
+    EIDPlayerStats *stats = self.probe.primaryPlayerStats;
+    BOOL isRussian = [self.store.languageCode isEqualToString:@"ru"];
+
+    NSMutableSet<NSNumber *> *heldCollectibles = [NSMutableSet set];
+    for (EIDPickupIdentity *invItem in inventory) {
+        if (invItem.variant == EIDPickupVariantCollectible) {
+            [heldCollectibles addObject:@(invItem.subtype)];
+        }
+    }
+
+    // 1. Consolation Prize (ID 644)
+    if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 644 && stats != nil) {
+        double speedScore = round(((stats.moveSpeed * 4.5) - 2.0) * 100.0) / 100.0;
+        double fireRate = 30.0 / (MAX(0.0, (double)stats.maxFireDelay) + 1.0);
+        double tearsScore = round(((pow(fireRate, 0.75) * 2.120391) - 2.0) * 100.0) / 100.0;
+        double dmg = MAX(0.0, (double)stats.damage);
+        double damageScore = round(((pow(dmg, 0.56) * 2.231179) - 2.0) * 100.0) / 100.0;
+        double rangeScore = round((((stats.tearRange - 230.0) / 60.0) + 2.0) * 100.0) / 100.0;
+
+        double scores[4] = { speedScore, tearsScore, damageScore, rangeScore };
+        double minScore = scores[0];
+        for (int i = 1; i < 4; ++i) {
+            if (scores[i] < minScore) minScore = scores[i];
+        }
+        NSMutableArray<NSNumber *> *lowestStats = [NSMutableArray array];
+        for (int i = 0; i < 4; ++i) {
+            if (fabs(scores[i] - minScore) < 0.001) {
+                [lowestStats addObject:@(i)];
+            }
+        }
+
+        int coins = stats.coins;
+        int bombs = stats.bombs * 3;
+        int keys = stats.keys * 3;
+        int pScores[3] = { coins, bombs, keys };
+        int minPickup = pScores[0];
+        for (int i = 1; i < 3; ++i) {
+            if (pScores[i] < minPickup) minPickup = pScores[i];
+        }
+        NSMutableArray<NSNumber *> *lowestPickups = [NSMutableArray array];
+        for (int i = 0; i < 3; ++i) {
+            if (pScores[i] == minPickup) {
+                [lowestPickups addObject:@(i)];
+            }
+        }
+
+        for (NSNumber *sNum in lowestStats) {
+            int s = sNum.intValue;
+            NSString *statStr = nil;
+            if (s == 0) statStr = isRussian ? @"↑ {{Speed}} +0.2 к скорости" : @"↑ {{Speed}} +0.2 Speed";
+            else if (s == 1) statStr = isRussian ? @"↑ {{Tears}} +0.5 к скорострельности" : @"↑ {{Tears}} +0.5 Fire rate";
+            else if (s == 2) statStr = isRussian ? @"↑ {{Damage}} +1 к урону" : @"↑ {{Damage}} +1 Damage";
+            else if (s == 3) statStr = isRussian ? @"↑ {{Range}} +2.5 к дальности" : @"↑ {{Range}} +2.5 Range";
+            if (lowestStats.count > 1) statStr = [statStr stringByAppendingString:@"?"];
+            appendLine(statStr);
+        }
+
+        for (NSNumber *pNum in lowestPickups) {
+            int p = pNum.intValue;
+            NSString *pStr = nil;
+            if (p == 0) pStr = isRussian ? @"{{Coin}} 3 монеты" : @"{{Coin}} 3 Coins";
+            else if (p == 1) pStr = isRussian ? @"{{Bomb}} 1 бомба" : @"{{Bomb}} 1 Bomb";
+            else if (p == 2) pStr = isRussian ? @"{{Key}} 1 ключ" : @"{{Key}} 1 Key";
+            if (lowestPickups.count > 1) pStr = [pStr stringByAppendingString:@"?"];
+            appendLine(pStr);
+        }
+    }
+
+    // 2. Car Battery Synergy
+    if ([heldCollectibles containsObject:@356]) {
+        if (pickup.variant == EIDPickupVariantCollectible) {
+            NSString *synergy = [self.store carBatterySynergyForActiveCollectibleID:displaySubtype];
+            if (synergy.length > 0) {
+                appendLine([NSString stringWithFormat:@"{{Collectible356}} %@", synergy]);
+            }
+        }
+    } else if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 356) {
+        for (NSNumber *heldId in heldCollectibles) {
+            NSString *synergy = [self.store carBatterySynergyForActiveCollectibleID:heldId.integerValue];
+            if (synergy.length > 0) {
+                EIDDescription *heldDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
+                                                                            subtype:heldId.integerValue];
+                NSString *heldName = heldDesc.name.length ? heldDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
+                appendLine([NSString stringWithFormat:@"{{Collectible%ld}} %@: %@", (long)heldId.integerValue, heldName, synergy]);
+            }
+        }
+    }
+
+    // 3. Tarot Cloth Buff
+    if ([heldCollectibles containsObject:@451]) {
+        if (pickup.variant == EIDPickupVariantCard) {
+            NSString *buff = [self.store tarotClothBuffForCardID:displaySubtype];
+            if (buff.length > 0) {
+                appendLine([NSString stringWithFormat:@"{{Collectible451}} %@", buff]);
+            }
+        }
+    } else if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 451) {
+        for (EIDPickupIdentity *invItem in inventory) {
+            if (invItem.variant == EIDPickupVariantCard) {
+                NSString *buff = [self.store tarotClothBuffForCardID:invItem.subtype];
+                if (buff.length > 0) {
+                    EIDDescription *cardDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCard
+                                                                               subtype:invItem.subtype];
+                    NSString *cardName = cardDesc.name.length ? cardDesc.name : [NSString stringWithFormat:@"%ld", (long)invItem.subtype];
+                    appendLine([NSString stringWithFormat:@"{{Card}} %@: %@", cardName, buff]);
+                }
+            }
+        }
+    }
+
+    // 4. Weapon Override Warnings & Conflicts
+    if (pickup.variant == EIDPickupVariantCollectible) {
+        NSDictionary<NSNumber *, NSArray<NSNumber *> *> *overrideTable = EIDWeaponOverridesTable();
+        BOOL isAzazel = (playerType == 7 || playerType == 25);
+        if (isAzazel) {
+            if ([EIDAzazelOverriddenList() containsObject:@(displaySubtype)]) {
+                appendLine(isRussian ? @"{{Warning}} Переопределено: Сера Азазеля" : @"{{Warning}} Overridden by: Azazel's Brimstone");
+            }
+            if ([EIDAzazelOverridingList() containsObject:@(displaySubtype)]) {
+                appendLine(isRussian ? @"{{Warning}} Переопределяет: Сера Азазеля" : @"{{Warning}} Overrides: Azazel's Brimstone");
+            }
+        }
+        for (NSNumber *heldId in heldCollectibles) {
+            NSArray<NSNumber *> *heldOverrides = overrideTable[heldId];
+            if ([heldOverrides containsObject:@(displaySubtype)]) {
+                EIDDescription *hDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
+                                                                            subtype:heldId.integerValue];
+                NSString *hName = hDesc.name.length ? hDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
+                NSString *warn = isRussian
+                    ? [NSString stringWithFormat:@"{{Warning}} Переопределено: {{Collectible%ld}} %@", (long)heldId.integerValue, hName]
+                    : [NSString stringWithFormat:@"{{Warning}} Overridden by: {{Collectible%ld}} %@", (long)heldId.integerValue, hName];
+                appendLine(warn);
+            }
+            NSArray<NSNumber *> *thisOverrides = overrideTable[@(displaySubtype)];
+            if ([thisOverrides containsObject:heldId]) {
+                EIDDescription *hDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
+                                                                            subtype:heldId.integerValue];
+                NSString *hName = hDesc.name.length ? hDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
+                NSString *warn = isRussian
+                    ? [NSString stringWithFormat:@"{{Warning}} Переопределяет: {{Collectible%ld}} %@", (long)heldId.integerValue, hName]
+                    : [NSString stringWithFormat:@"{{Warning}} Overrides: {{Collectible%ld}} %@", (long)heldId.integerValue, hName];
+                appendLine(warn);
+            }
+        }
+    }
+
+    // 5. Character-Specific Warnings (The Lost / Keeper)
+    if (playerType == 10 || playerType == 31) { // The Lost / Tainted Lost
+        if (pickup.variant == EIDPickupVariantCollectible) {
+            if (displaySubtype == 126 || displaySubtype == 135 || displaySubtype == 186) {
+                appendLine(isRussian ? @"{{Warning}} Убивает при использовании!" : @"{{Warning}} Kills on use!");
+            } else if (displaySubtype == 475) {
+                appendLine(isRussian ? @"{{Warning}} Убивает персонажа!" : @"{{Warning}} Kills the character!");
+            }
+        } else if (pickup.variant == EIDPickupVariantCard && displaySubtype == 46) {
+            appendLine(isRussian ? @"{{Warning}} Убивает персонажа!" : @"{{Warning}} Kills the character!");
+        }
+    } else if (playerType == 14 || playerType == 33) { // Keeper / Tainted Keeper
+        if (pickup.variant == EIDPickupVariantCollectible) {
+            if (displaySubtype == 227) {
+                appendLine(isRussian ? @"{{Warning}} Выпадает только 0-1 монета" : @"{{Warning}} Only drops 0-1 coins");
+            } else if (displaySubtype == 135) {
+                appendLine(isRussian ? @"{{Warning}} Даёт только 0-1 монету" : @"{{Warning}} Only pays out 0-1 coins");
+            }
+        } else if (pickup.variant == EIDPickupVariantTrinket && displaySubtype == 1) {
+            appendLine(isRussian ? @"{{Warning}} Выпадает только 0-1 монета" : @"{{Warning}} Only drops 0-1 coins");
+        }
+    }
+
+    return detail;
+}
+
 - (void)renderPickups:(NSArray<EIDPickupIdentity *> *)pickups {
     if (!pickups.count) {
         UIView *panel = self.panel;
@@ -903,6 +1149,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
         NSString *detail = item.detail.length ? item.detail
             : ([self.store.languageCode isEqualToString:@"ru"]
                ? @"Описание недоступно" : @"No description available");
+        detail = [self enrichDescription:detail forPickup:pickup displaySubtype:displaySubtype];
         detail = [detail stringByReplacingOccurrencesOfString:@"#" withString:@"\n"];
         detail = [self renderMarkup:detail];
         [lines addObject:[NSString stringWithFormat:@"%@ · %@  [%ld]\n%@",
@@ -977,7 +1224,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
             @"HealingRed": @"♥", @"Coin": @"¢", @"Bomb": @"💣", @"Key": @"🔑",
             @"Battery": @"⚡", @"Timer": @"◷", @"Warning": @"⚠", @"Poison": @"☠",
             @"Rune": @"◇", @"Card": @"▣", @"AngelRoom": @"♢", @"DevilRoom": @"♠",
-            @"TreasureRoom": @"★", @"Shop": @"$", @"Chargeable": @"⚡"
+            @"TreasureRoom": @"★", @"Shop": @"$", @"Chargeable": @"⚡",
+            @"CarBattery": @"🔋", @"TarotCloth": @"🔮"
         };
         pattern = [NSRegularExpression regularExpressionWithPattern:@"\\{\\{([^}]+)\\}\\}"
                                                              options:0 error:nil];
@@ -988,8 +1236,14 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     for (NSTextCheckingResult *match in matches.reverseObjectEnumerator) {
         NSString *token = [input substringWithRange:[match rangeAtIndex:1]];
         NSString *replacement = symbols[token];
-        if (!replacement && [token hasPrefix:@"Collectible"]) replacement = @"◆";
+        if (!replacement && [token hasPrefix:@"Collectible"]) {
+            if ([token isEqualToString:@"Collectible356"]) replacement = @"🔋";
+            else if ([token isEqualToString:@"Collectible451"]) replacement = @"🔮";
+            else replacement = @"◆";
+        }
         if (!replacement && [token hasPrefix:@"Color"]) replacement = @"";
+        if (!replacement && [token hasPrefix:@"Blink"]) replacement = @"";
+        if (!replacement && [token isEqualToString:@"CR"]) replacement = @"";
         if (!replacement) replacement = @"";
         [output replaceCharactersInRange:match.range withString:replacement];
     }

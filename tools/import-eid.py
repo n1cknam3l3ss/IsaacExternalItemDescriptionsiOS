@@ -97,6 +97,87 @@ def parse_description_table(
     return result
 
 
+def parse_synergy_table(
+    path: Path, table_names: set[str]
+) -> dict[str, str | list[str]]:
+    """Parse synergy and buff tables like carBattery, repCarBattery, tarotClothBuffs."""
+    txt = path.read_text(encoding="utf-8-sig")
+    entries: dict[str, str | list[str]] = {}
+    for table_name in table_names:
+        pattern = re.compile(
+            rf'(?:local\s+{table_name}|EID\.descriptions\[languageCode\]\.{table_name})\s*=\s*\{{',
+            re.DOTALL,
+        )
+        m = pattern.search(txt)
+        if not m:
+            continue
+        start = m.end()
+        depth = 1
+        idx = start
+        while idx < len(txt) and depth > 0:
+            if txt[idx] == '{':
+                depth += 1
+            elif txt[idx] == '}':
+                depth -= 1
+            idx += 1
+        content = txt[start : idx - 1]
+
+        cursor = 0
+        while cursor < len(content):
+            km = re.search(r'\[(?:"([^"]+)"|\'([^\']+)\'|(\d+))\]\s*=\s*', content[cursor:])
+            if not km:
+                break
+            key_raw = km.group(1) or km.group(2) or km.group(3)
+            val_start = cursor + km.end()
+            while val_start < len(content) and content[val_start].isspace():
+                val_start += 1
+            if val_start >= len(content):
+                break
+
+            val = None
+            next_cursor = val_start
+            if content[val_start] in ('"', "'"):
+                q = content[val_start]
+                v_chars: list[str] = []
+                p = val_start + 1
+                while p < len(content):
+                    c = content[p]
+                    p += 1
+                    if c == q:
+                        val = "".join(v_chars)
+                        next_cursor = p
+                        break
+                    if c == "\\" and p < len(content):
+                        esc = content[p]
+                        p += 1
+                        v_chars.append({"n": "\n", "r": "\r", "t": "\t"}.get(esc, esc))
+                    else:
+                        v_chars.append(c)
+            elif content[val_start] == "{":
+                depth2 = 1
+                p = val_start + 1
+                while p < len(content) and depth2 > 0:
+                    if content[p] == "{":
+                        depth2 += 1
+                    elif content[p] == "}":
+                        depth2 -= 1
+                    p += 1
+                raw_list = content[val_start + 1 : p - 1]
+                next_cursor = p
+                parts = [part.strip().strip('"').strip("'") for part in raw_list.split(",")]
+                val = [part for part in parts if part]
+            else:
+                nm = re.match(r"[^,}\n]+", content[val_start:])
+                if nm:
+                    val = nm.group(0).strip()
+                    next_cursor = val_start + nm.end()
+
+            if val is not None:
+                entries[key_raw] = val
+            cursor = next_cursor
+    return entries
+
+
 def git_commit(root: Path) -> str:
     try:
         return subprocess.check_output(
@@ -179,6 +260,15 @@ def main() -> int:
                         entry["name"] = f"{header} ({index}/{maximum})"
             categories[category] = {str(key): entries[key] for key in sorted(entries)}
             category_counts.append(f"{category}={len(entries)}")
+        cb_entries: dict[str, str | list[str]] = {}
+        tc_entries: dict[str, str | list[str]] = {}
+        for path in files:
+            cb_entries.update(parse_synergy_table(path, {"carBattery", "repCarBattery"}))
+            tc_entries.update(parse_synergy_table(path, {"tarotClothBuffs"}))
+        categories["car_battery"] = cb_entries
+        categories["tarot_cloth"] = tc_entries
+        category_counts.append(f"car_battery={len(cb_entries)}")
+        category_counts.append(f"tarot_cloth={len(tc_entries)}")
         languages[code] = categories
         counts.append(f"{code}({', '.join(category_counts)})")
     payload = {

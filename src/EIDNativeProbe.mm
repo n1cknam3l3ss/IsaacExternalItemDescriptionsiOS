@@ -206,6 +206,15 @@ constexpr size_t kPlayerPocketItemsOffset = 0x1c10;
 constexpr size_t kPlayerPocketItemCount = 4;
 constexpr size_t kPlayerTrinketSlotsOffset = 0x1ab0;
 constexpr size_t kPlayerTrinketSlotCount = 2;
+constexpr size_t kPlayerSmeltedTrinketsBeginOffset = 0x29a0;
+constexpr size_t kPlayerSmeltedTrinketsEndOffset = 0x29a8;
+constexpr size_t kPlayerMoveSpeedOffset = 0x194c;
+constexpr size_t kPlayerMaxFireDelayOffset = 0x1834;
+constexpr size_t kPlayerDamageOffset = 0x1844;
+constexpr size_t kPlayerTearRangeOffset = 0x1854;
+constexpr size_t kPlayerCoinsOffset = 0x26ac;
+constexpr size_t kPlayerBombsOffset = 0x26a8;
+constexpr size_t kPlayerKeysOffset = 0x26a0;
 constexpr size_t kPlayerCollectibleCountsOffset = 0x1ab8;
 constexpr size_t kPlayerTransformationCountersOffset = 0x1c54;
 constexpr size_t kNativeTransformationCount = 15;
@@ -476,6 +485,66 @@ static bool ReadPlayerTrinkets(
         // lookup, but validate the underlying identifier before publishing it.
         if (trinket < 0 || (trinket & 0x7fff) > 4096) return false;
     }
+    return true;
+}
+
+static bool ReadPlayerSmeltedTrinkets(
+    vm_address_t playerAddress,
+    std::vector<int32_t>& outTrinkets) {
+    uintptr_t begin = 0;
+    uintptr_t end = 0;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerSmeltedTrinketsBeginOffset,
+                           &begin, sizeof(begin)) || !begin) return true;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerSmeltedTrinketsEndOffset,
+                           &end, sizeof(end)) || !end) return true;
+    if (end <= begin) return true;
+    size_t count = end - begin;
+    if (count > 2048) return false;
+    std::vector<uint8_t> buffer(count);
+    if (!ReadOwnTaskMemory(begin, buffer.data(), count)) return false;
+    for (size_t i = 1; i < count; ++i) {
+        if (buffer[i] != 0) {
+            int32_t id = static_cast<int32_t>(i);
+            if (buffer[i] > 1) {
+                id |= 0x8000;
+            }
+            outTrinkets.push_back(id);
+        }
+    }
+    return true;
+}
+
+static bool ReadPlayerStats(
+    vm_address_t playerAddress,
+    NSInteger playerType,
+    EIDPlayerStats *stats) {
+    float moveSpeed = 0;
+    float maxFireDelay = 0;
+    float damage = 0;
+    float tearRange = 0;
+    int32_t coins = 0;
+    int32_t bombs = 0;
+    int32_t keys = 0;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerMoveSpeedOffset, &moveSpeed, sizeof(moveSpeed))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerMaxFireDelayOffset, &maxFireDelay, sizeof(maxFireDelay))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerDamageOffset, &damage, sizeof(damage))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerTearRangeOffset, &tearRange, sizeof(tearRange))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerCoinsOffset, &coins, sizeof(coins))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerBombsOffset, &bombs, sizeof(bombs))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerKeysOffset, &keys, sizeof(keys))) return false;
+
+    if (moveSpeed < 0.0f || moveSpeed > 50.0f) return false;
+    if (damage < 0.0f || damage > 100000.0f) return false;
+    if (coins < 0 || coins > 9999 || bombs < 0 || bombs > 9999 || keys < 0 || keys > 9999) return false;
+
+    stats.playerType = playerType;
+    stats.moveSpeed = moveSpeed;
+    stats.maxFireDelay = maxFireDelay;
+    stats.damage = damage;
+    stats.tearRange = tearRange;
+    stats.coins = coins;
+    stats.bombs = bombs;
+    stats.keys = keys;
     return true;
 }
 
@@ -1056,6 +1125,9 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 }
 @end
 
+@implementation EIDPlayerStats
+@end
+
 @interface EIDNativeProbe ()
 @property(nonatomic, copy) NSString *executableUUID;
 @property(nonatomic, copy) NSString *status;
@@ -1069,6 +1141,10 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(atomic, getter=isInventoryStateAvailable) BOOL inventoryStateAvailable;
 @property(atomic, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
 @property(atomic, getter=isSuperBumActive) BOOL superBumActive;
+@property(atomic) NSInteger primaryPlayerType;
+@property(atomic, strong, nullable) EIDPlayerStats *primaryPlayerStats;
+@property(atomic, copy) NSArray<EIDPickupIdentity *> *heldTrinketItems;
+@property(atomic, copy) NSArray<EIDPickupIdentity *> *smeltedTrinketItems;
 @property(nonatomic, strong) NSArray<EIDPickupIdentity *> *lastPickups;
 @property(atomic, copy) NSArray<EIDPickupIdentity *> *inventoryItems;
 @property(nonatomic, strong) NSDictionary<NSNumber *, NSNumber *> *ownedCollectibleCounts;
@@ -1184,6 +1260,10 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         self.nativeTransformationCounters = @[];
         self.transformationStateAvailable = NO;
         self.superBumActive = NO;
+        self.heldTrinketItems = @[];
+        self.smeltedTrinketItems = @[];
+        self.primaryPlayerType = 0;
+        self.primaryPlayerStats = nil;
         self.pauseStateAvailable = NO;
         self.paused = NO;
         [self.activeCollectibleHistory removeAllObjects];
@@ -1203,6 +1283,10 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         self.runSeed = hasSeed ? seed : 0;
         self.lastPickups = @[];
         self.inventoryItems = @[];
+        self.heldTrinketItems = @[];
+        self.smeltedTrinketItems = @[];
+        self.primaryPlayerType = 0;
+        self.primaryPlayerStats = nil;
         self.ownedCollectibleCounts = @{};
         self.ownedCollectibleStateAvailable = NO;
         self.inventoryStateAvailable = NO;
@@ -1328,11 +1412,29 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 - (void)updateInventoryForPlayers:(const VMRegionResult&)players {
     if (!self.ownedCollectibleStateAvailable || !players.playerCount) {
         self.inventoryItems = @[];
+        self.heldTrinketItems = @[];
+        self.smeltedTrinketItems = @[];
+        self.primaryPlayerType = 0;
+        self.primaryPlayerStats = nil;
         self.inventoryStateAvailable = NO;
         return;
     }
 
+    vm_address_t firstPlayer = players.players[0].address;
+    int32_t identity[3] = {};
+    if (ReadOwnTaskMemory(firstPlayer + kEntityTypeOffset, identity, sizeof(identity))) {
+        self.primaryPlayerType = identity[2];
+    }
+    EIDPlayerStats *stats = [[EIDPlayerStats alloc] init];
+    if (ReadPlayerStats(firstPlayer, self.primaryPlayerType, stats)) {
+        self.primaryPlayerStats = stats;
+    } else {
+        self.primaryPlayerStats = nil;
+    }
+
     NSMutableArray<EIDPickupIdentity *> *items = [NSMutableArray array];
+    NSMutableArray<EIDPickupIdentity *> *heldTrinkets = [NSMutableArray array];
+    NSMutableArray<EIDPickupIdentity *> *smeltedTrinkets = [NSMutableArray array];
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
     void (^addIdentity)(NSInteger, NSInteger) = ^(NSInteger variant, NSInteger subtype) {
         if (subtype <= 0) return;
@@ -1357,7 +1459,20 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
             break;
         }
         for (int32_t trinket : trinkets) {
-            if ((trinket & 0x7fff) != 0) addIdentity(EIDPickupVariantTrinket, trinket);
+            if ((trinket & 0x7fff) != 0) {
+                [heldTrinkets addObject:[[EIDPickupIdentity alloc] initWithVariant:EIDPickupVariantTrinket subtype:trinket]];
+                addIdentity(EIDPickupVariantTrinket, trinket);
+            }
+        }
+
+        std::vector<int32_t> smelted;
+        if (ReadPlayerSmeltedTrinkets(playerAddress, smelted)) {
+            for (int32_t trinket : smelted) {
+                if ((trinket & 0x7fff) != 0) {
+                    [smeltedTrinkets addObject:[[EIDPickupIdentity alloc] initWithVariant:EIDPickupVariantTrinket subtype:trinket]];
+                    addIdentity(EIDPickupVariantTrinket, trinket);
+                }
+            }
         }
 
         std::array<VMPlayerPocketItem, kPlayerPocketItemCount> pockets{};
@@ -1383,6 +1498,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 
     if (!readable) {
         self.inventoryItems = @[];
+        self.heldTrinketItems = @[];
+        self.smeltedTrinketItems = @[];
         self.inventoryStateAvailable = NO;
         if (!self.loggedUnreadableInventory) {
             self.loggedUnreadableInventory = YES;
@@ -1390,14 +1507,18 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         }
         return;
     }
+    self.heldTrinketItems = heldTrinkets.copy;
+    self.smeltedTrinketItems = smeltedTrinkets.copy;
     NSArray<EIDPickupIdentity *> *snapshot = items.copy;
     BOOL changed = ![self.inventoryItems isEqualToArray:snapshot];
     self.inventoryItems = snapshot;
     self.inventoryStateAvailable = YES;
     self.loggedUnreadableInventory = NO;
     if (changed) {
-        EIDLog(@"native pause inventory changed: %lu unique entries",
-               (unsigned long)snapshot.count);
+        EIDLog(@"native pause inventory changed: %lu unique entries (%lu held trinkets, %lu smelted trinkets)",
+               (unsigned long)snapshot.count,
+               (unsigned long)heldTrinkets.count,
+               (unsigned long)smeltedTrinkets.count);
     }
 }
 

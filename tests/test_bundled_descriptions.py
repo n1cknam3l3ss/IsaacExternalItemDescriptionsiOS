@@ -55,6 +55,14 @@ class BundledDescriptionsTests(unittest.TestCase):
                 for entry in language[category].values():
                     self.assertFalse(entry["name"].startswith("["))
 
+    def test_car_battery_and_tarot_cloth_tables(self) -> None:
+        for lang_code in ("en_us", "ru"):
+            lang = self.payload["languages"][lang_code]
+            self.assertIn("car_battery", lang)
+            self.assertIn("tarot_cloth", lang)
+            self.assertGreaterEqual(len(lang["car_battery"]), 90)
+            self.assertGreaterEqual(len(lang["tarot_cloth"]), 30)
+
 
 if __name__ == "__main__":
     unittest.main()

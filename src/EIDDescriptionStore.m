@@ -140,6 +140,8 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 
 @interface EIDDescriptionStore ()
 @property(nonatomic, strong) NSMutableDictionary<NSString *, EIDDescription *> *items;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, id> *carBatteryBuffs;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, id> *tarotClothBuffs;
 @property(nonatomic, copy) NSString *languageCode;
 @property(nonatomic, copy) NSArray<NSString *> *availableLanguageCodes;
 @property(nonatomic, copy) NSString *descriptionDataSet;
@@ -151,6 +153,8 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
     self = [super init];
     if (self) {
         _items = [NSMutableDictionary dictionary];
+        _carBatteryBuffs = [NSMutableDictionary dictionary];
+        _tarotClothBuffs = [NSMutableDictionary dictionary];
         _languageCode = [self resolvedLanguageCode];
         _availableLanguageCodes = @[@"en_us"];
         _descriptionDataSet = @"Isaac metadata";
@@ -176,12 +180,16 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 
 - (void)reload {
     [self.items removeAllObjects];
+    [self.carBatteryBuffs removeAllObjects];
+    [self.tarotClothBuffs removeAllObjects];
     [self loadGameItemMetadata];
     [self loadImportedDescriptions];
-    EIDLog(@"descriptions loaded: %lu collectibles, %lu trinkets, %lu cards/runes, %lu pills, %lu horse pills",
+    EIDLog(@"descriptions loaded: %lu collectibles, %lu trinkets, %lu cards/runes, %lu pills, %lu horse pills, %lu car battery, %lu tarot cloth",
            (unsigned long)self.collectibleCount, (unsigned long)self.trinketCount,
            (unsigned long)self.cardCount, (unsigned long)self.pillCount,
-           (unsigned long)self.horsePillCount);
+           (unsigned long)self.horsePillCount,
+           (unsigned long)self.carBatteryBuffs.count,
+           (unsigned long)self.tarotClothBuffs.count);
 }
 
 - (EIDDescription *)descriptionForCollectibleID:(NSInteger)collectibleID {
@@ -191,6 +199,40 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 - (EIDDescription *)descriptionForPickupVariant:(NSInteger)variant subtype:(NSInteger)subtype {
     if (variant == EIDPickupVariantTrinket) subtype &= 0x7fff;
     return self.items[EIDDescriptionKey(variant, subtype)];
+}
+
+- (NSString *)carBatterySynergyForActiveCollectibleID:(NSInteger)collectibleID {
+    if (collectibleID <= 0) return nil;
+    id entry = self.carBatteryBuffs[@(collectibleID).stringValue];
+    if (!entry) return nil;
+    if ([entry isKindOfClass:NSString.class]) return entry;
+    if ([entry isKindOfClass:NSArray.class]) {
+        NSArray *arr = (NSArray *)entry;
+        if (arr.count == 2) {
+            return [NSString stringWithFormat:@"%@ ➔ %@", arr[0], arr[1]];
+        }
+        if (arr.count > 2) {
+            return [arr componentsJoinedByString:@", "];
+        }
+    }
+    return nil;
+}
+
+- (NSString *)tarotClothBuffForCardID:(NSInteger)cardID {
+    if (cardID <= 0) return nil;
+    id entry = self.tarotClothBuffs[@(cardID).stringValue];
+    if (!entry) return nil;
+    if ([entry isKindOfClass:NSString.class]) return entry;
+    if ([entry isKindOfClass:NSArray.class]) {
+        NSArray *arr = (NSArray *)entry;
+        if (arr.count == 2) {
+            return [NSString stringWithFormat:@"%@ ➔ %@", arr[0], arr[1]];
+        }
+        if (arr.count > 2) {
+            return [arr componentsJoinedByString:@", "];
+        }
+    }
+    return nil;
 }
 
 - (NSString *)resolvedLanguageCode {
@@ -320,6 +362,18 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
             self.items[descriptionKey] = [[EIDDescription alloc] initWithPickupVariant:variant subtype:subtype name:name detail:detail iconPath:existing.iconPath quality:existing ? existing.quality : -1];
         }];
     }];
+    if ([english[@"car_battery"] isKindOfClass:NSDictionary.class]) {
+        [self.carBatteryBuffs addEntriesFromDictionary:english[@"car_battery"]];
+    }
+    if ([language[@"car_battery"] isKindOfClass:NSDictionary.class]) {
+        [self.carBatteryBuffs addEntriesFromDictionary:language[@"car_battery"]];
+    }
+    if ([english[@"tarot_cloth"] isKindOfClass:NSDictionary.class]) {
+        [self.tarotClothBuffs addEntriesFromDictionary:english[@"tarot_cloth"]];
+    }
+    if ([language[@"tarot_cloth"] isKindOfClass:NSDictionary.class]) {
+        [self.tarotClothBuffs addEntriesFromDictionary:language[@"tarot_cloth"]];
+    }
     EIDLog(@"imported EID descriptions from %@ (%lu languages; active %@; dataset %@)", selectedPath.lastPathComponent, (unsigned long)self.availableLanguageCodes.count, self.languageCode, self.descriptionDataSet);
 }
 @end

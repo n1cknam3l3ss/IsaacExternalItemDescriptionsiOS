@@ -20,6 +20,17 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 - (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype;
 @end
 
+@interface EIDPlayerStats : NSObject
+@property(nonatomic, assign) NSInteger playerType;
+@property(nonatomic, assign) float moveSpeed;
+@property(nonatomic, assign) float maxFireDelay;
+@property(nonatomic, assign) float damage;
+@property(nonatomic, assign) float tearRange;
+@property(nonatomic, assign) NSInteger coins;
+@property(nonatomic, assign) NSInteger bombs;
+@property(nonatomic, assign) NSInteger keys;
+@end
+
 @interface EIDNativeProbe : NSObject
 @property(nonatomic, copy, readonly) NSString *executableUUID;
 @property(nonatomic, copy, readonly) NSString *status;
@@ -33,6 +44,10 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 @property(atomic, readonly, getter=isInventoryStateAvailable) BOOL inventoryStateAvailable;
 @property(atomic, readonly, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
 @property(atomic, readonly, getter=isSuperBumActive) BOOL superBumActive;
+@property(atomic, readonly) NSInteger primaryPlayerType;
+@property(atomic, readonly, nullable) EIDPlayerStats *primaryPlayerStats;
+@property(atomic, readonly) NSArray<EIDPickupIdentity *> *heldTrinketItems;
+@property(atomic, readonly) NSArray<EIDPickupIdentity *> *smeltedTrinketItems;
 - (void)start;
 - (NSArray<EIDPickupIdentity *> *)currentDescribablePickups;
 - (NSArray<EIDPickupIdentity *> *)currentInventoryItems;
