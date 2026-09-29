@@ -132,6 +132,12 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 @property(nonatomic, copy) NSString *inventorySignature;
 @property(nonatomic, copy) NSString *transformationProgressSignature;
 @property(nonatomic) BOOL pauseUIActive;
+#if EID_DEBUG_MENU
+@property(nonatomic, strong) UIButton *debugButton;
+@property(nonatomic, strong) UIView *debugCard;
+@property(nonatomic, strong) UIScrollView *debugScrollView;
+@property(nonatomic, strong) UILabel *debugStatusLabel;
+#endif
 @end
 
 @implementation EIDOverlayController
@@ -262,6 +268,21 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     [inventoryButton addTarget:self action:@selector(toggleInventory:)
               forControlEvents:UIControlEventTouchUpInside];
     inventoryButton.hidden = YES;
+
+#if EID_DEBUG_MENU
+    UIButton *debugButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    debugButton.frame = CGRectMake(110, 14, 88, 34);
+    debugButton.backgroundColor = [UIColor colorWithRed:0.75 green:0.22 blue:0.17 alpha:0.88];
+    debugButton.layer.cornerRadius = 8;
+    debugButton.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.35].CGColor;
+    debugButton.layer.borderWidth = 1;
+    debugButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+    [debugButton setTitle:@"🛠 Debug" forState:UIControlStateNormal];
+    [debugButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [debugButton addTarget:self action:@selector(toggleDebugMenu:)
+          forControlEvents:UIControlEventTouchUpInside];
+    debugButton.hidden = YES;
+#endif
 
     CGFloat cardWidth = MIN(410, window.bounds.size.width - 40);
     CGFloat cardHeight = MIN(310, window.bounds.size.height - 30);
@@ -418,8 +439,15 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     [root addSubview:diagnostics];
     [root addSubview:settingsButton];
     [root addSubview:inventoryButton];
+#if EID_DEBUG_MENU
+    [root addSubview:debugButton];
+    self.debugButton = debugButton;
+#endif
     [root addSubview:settingsCard];
     [root addSubview:inventoryCard];
+#if EID_DEBUG_MENU
+    [self setupDebugCardInWindow:window];
+#endif
     [window addSubview:root];
     self.rootView = root;
     self.panel = panel;
@@ -495,9 +523,15 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 - (void)updatePauseInventoryForPaused:(BOOL)paused {
     BOOL available = paused && self.probe.inventoryStateAvailable;
     self.inventoryButton.hidden = !available;
+#if EID_DEBUG_MENU
+    self.debugButton.hidden = !paused;
+#endif
     self.settingsButton.hidden = !(self.menuMode || paused);
     if (!paused) {
         self.inventoryCard.hidden = YES;
+#if EID_DEBUG_MENU
+        self.debugCard.hidden = YES;
+#endif
         self.inventorySignature = nil;
         if (!self.menuMode) self.settingsCard.hidden = YES;
         if (self.pauseUIActive) {
@@ -731,6 +765,9 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     if (!self.probe.paused || !self.probe.inventoryStateAvailable) return;
     self.inventoryCard.hidden = !self.inventoryCard.hidden;
     self.settingsCard.hidden = YES;
+#if EID_DEBUG_MENU
+    self.debugCard.hidden = YES;
+#endif
     if (!self.inventoryCard.hidden) {
         [self rebuildInventoryContentsIfNeeded:YES];
         [self.rootView bringSubviewToFront:self.inventoryCard];
@@ -762,6 +799,9 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     self.settingsCard.hidden = !self.settingsCard.hidden;
     if (!self.settingsCard.hidden) {
         self.inventoryCard.hidden = YES;
+#if EID_DEBUG_MENU
+        self.debugCard.hidden = YES;
+#endif
         [self updateSettingsControls];
         [self.rootView bringSubviewToFront:self.settingsCard];
         self.panel.alpha = 0;
@@ -1266,4 +1306,410 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
         self.diagnosticsLabel.hidden = !enabled;
     });
 }
+
+#if EID_DEBUG_MENU
+- (void)setupDebugCardInWindow:(UIWindow *)window {
+    CGFloat cardWidth = MIN(440, window.bounds.size.width - 24);
+    CGFloat cardHeight = MIN(360, window.bounds.size.height - 24);
+    UIView *card = [[UIView alloc] initWithFrame:
+        CGRectMake((window.bounds.size.width - cardWidth) * 0.5,
+                   (window.bounds.size.height - cardHeight) * 0.5, cardWidth, cardHeight)];
+    card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin |
+        UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin |
+        UIViewAutoresizingFlexibleBottomMargin;
+    card.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:0.96];
+    card.layer.cornerRadius = 14;
+    card.layer.borderColor = [UIColor colorWithRed:0.85 green:0.25 blue:0.2 alpha:0.65].CGColor;
+    card.layer.borderWidth = 1.5;
+    card.tag = 0xE1D;
+    card.hidden = YES;
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, cardWidth - 66, 30)];
+    title.text = @"🛠 EID Debug Console";
+    title.textColor = [UIColor colorWithRed:1.0 green:0.4 blue:0.3 alpha:1.0];
+    title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
+    [card addSubview:title];
+
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(cardWidth - 46, 6, 36, 32);
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
+    [closeBtn setTitle:@"×" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [closeBtn addTarget:self action:@selector(closeDebugMenu:) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:closeBtn];
+
+    UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(12, 40, cardWidth - 24, 38)];
+    status.numberOfLines = 2;
+    status.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightMedium];
+    status.textColor = [UIColor colorWithRed:0.4 green:1.0 blue:0.6 alpha:1.0];
+    status.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+    status.layer.cornerRadius = 6;
+    status.layer.masksToBounds = YES;
+    status.textAlignment = NSTextAlignmentCenter;
+    status.text = @"Ready. Stand near a pedestal or pickup to test.";
+    [card addSubview:status];
+    self.debugStatusLabel = status;
+
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:
+        CGRectMake(12, 82, cardWidth - 24, cardHeight - 88)];
+    scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scroll.alwaysBounceVertical = YES;
+    scroll.showsVerticalScrollIndicator = YES;
+    [card addSubview:scroll];
+    self.debugScrollView = scroll;
+
+    [self buildDebugControlsInScrollView:scroll width:cardWidth - 24];
+
+    [self.rootView addSubview:card];
+    self.debugCard = card;
+}
+
+- (UIButton *)createDebugButtonWithTitle:(NSString *)title action:(SEL)action frame:(CGRect)frame color:(UIColor *)color {
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    btn.frame = frame;
+    btn.backgroundColor = color ?: [UIColor colorWithWhite:1 alpha:0.12];
+    btn.layer.cornerRadius = 6;
+    btn.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.2].CGColor;
+    btn.layer.borderWidth = 1;
+    btn.titleLabel.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightSemibold];
+    btn.titleLabel.adjustsFontSizeToFitWidth = YES;
+    btn.titleLabel.minimumScaleFactor = 0.8;
+    [btn setTitle:title forState:UIControlStateNormal];
+    [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [btn addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return btn;
+}
+
+- (void)buildDebugControlsInScrollView:(UIScrollView *)scroll width:(CGFloat)width {
+    CGFloat y = 4;
+    CGFloat colW = (width - 8) * 0.5;
+    CGFloat btnH = 32;
+    CGFloat space = 6;
+
+    void (^addHeader)(NSString *) = ^(NSString *titleText) {
+        UILabel *hdr = [[UILabel alloc] initWithFrame:CGRectMake(2, y, width - 4, 20)];
+        hdr.text = titleText;
+        hdr.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+        hdr.textColor = [UIColor colorWithRed:1.0 green:0.8 blue:0.2 alpha:1.0];
+        [scroll addSubview:hdr];
+        y += 22;
+    };
+
+    // --- Section 1: Transform Pickup ---
+    addHeader(@"🔮 TRANSFORM NEAREST PICKUP / PEDESTAL");
+
+    UIColor *pedestalColor = [UIColor colorWithRed:0.25 green:0.18 blue:0.42 alpha:0.85];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Consolation Prize (644)"
+                                                 action:@selector(debugTransformConsolationPrize:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pedestalColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Brimstone (118)"
+                                                 action:@selector(debugTransformBrimstone:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pedestalColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Mom's Knife (114)"
+                                                 action:@selector(debugTransformMomsKnife:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pedestalColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Trisagion (678)"
+                                                 action:@selector(debugTransformTrisagion:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pedestalColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Car Battery (356)"
+                                                 action:@selector(debugTransformCarBattery:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pedestalColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Tarot Cloth (451)"
+                                                 action:@selector(debugTransformTarotCloth:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pedestalColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Custom Item ID (1 - 732)... ➔"
+                                                 action:@selector(debugTransformCustomItem:)
+                                                  frame:CGRectMake(0, y, width, btnH)
+                                                  color:[UIColor colorWithRed:0.32 green:0.2 blue:0.55 alpha:0.95]]];
+    y += btnH + space + 8;
+
+    // --- Section 2: Pocket Items & Pills ---
+    addHeader(@"💊 POCKET ITEMS, PILLS & TRINKETS");
+
+    UIColor *pillColor = [UIColor colorWithRed:0.18 green:0.32 blue:0.45 alpha:0.85];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Give Gulp! Pill"
+                                                 action:@selector(debugGiveGulpPill:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pillColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Identify All Pills"
+                                                 action:@selector(debugIdentifyAllPills:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pillColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Cancer (39) + Gulp!"
+                                                 action:@selector(debugSmeltCancer:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pillColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Curved Horn (35) + Gulp!"
+                                                 action:@selector(debugSmeltCurvedHorn:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pillColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"The Sun (Card 19)"
+                                                 action:@selector(debugGiveTheSun:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:pillColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"The Joker (Card 22)"
+                                                 action:@selector(debugGiveTheJoker:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:pillColor]];
+    y += btnH + space + 8;
+
+    // --- Section 3: Player Stats & Resources ---
+    addHeader(@"⚡ PLAYER STATS & RESOURCES");
+
+    UIColor *statColor = [UIColor colorWithRed:0.2 green:0.38 blue:0.25 alpha:0.85];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"99 Coins, Bombs, Keys"
+                                                 action:@selector(debugGiveConsumables:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:statColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"Heal / +6 Soul Hearts"
+                                                 action:@selector(debugHealPlayer:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:statColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"+5.0 Damage"
+                                                 action:@selector(debugAddDamage:)
+                                                  frame:CGRectMake(0, y, colW, btnH)
+                                                  color:statColor]];
+    [scroll addSubview:[self createDebugButtonWithTitle:@"+2.0 Tears"
+                                                 action:@selector(debugAddTears:)
+                                                  frame:CGRectMake(colW + 8, y, colW, btnH)
+                                                  color:statColor]];
+    y += btnH + space;
+
+    [scroll addSubview:[self createDebugButtonWithTitle:@"+0.3 Speed"
+                                                 action:@selector(debugAddSpeed:)
+                                                  frame:CGRectMake(0, y, width, btnH)
+                                                  color:statColor]];
+    y += btnH + space + 12;
+
+    scroll.contentSize = CGSizeMake(width, y);
+}
+
+- (void)toggleDebugMenu:(UIButton *)sender {
+    (void)sender;
+    self.debugCard.hidden = !self.debugCard.hidden;
+    if (!self.debugCard.hidden) {
+        self.inventoryCard.hidden = YES;
+        self.settingsCard.hidden = YES;
+        [self updateDebugStatus];
+        [self.rootView bringSubviewToFront:self.debugCard];
+        self.panel.alpha = 0;
+    }
+}
+
+- (void)closeDebugMenu:(UIButton *)sender {
+    (void)sender;
+    self.debugCard.hidden = YES;
+}
+
+- (void)updateDebugStatus {
+    if (!self.debugStatusLabel) return;
+    if (self.probe.nearestPickupAddress) {
+        self.debugStatusLabel.text = [NSString stringWithFormat:
+            @"Nearest Pickup at 0x%lx\nPlayer: active · ready for transformation",
+            (unsigned long)self.probe.nearestPickupAddress];
+    } else if (self.probe.lastPickupAddresses.count > 0) {
+        self.debugStatusLabel.text = [NSString stringWithFormat:
+            @"%lu pickups detected in room (nearest: none)\nStand close to an item to transform it",
+            (unsigned long)self.probe.lastPickupAddresses.count];
+    } else {
+        self.debugStatusLabel.text = @"No pickups found in current room.\nEnter an item/boss/shop room first.";
+    }
+}
+
+- (void)flashDebugMessage:(NSString *)msg success:(BOOL)success {
+    if (!self.debugStatusLabel) return;
+    self.debugStatusLabel.textColor = success
+        ? [UIColor colorWithRed:0.4 green:1.0 blue:0.5 alpha:1.0]
+        : [UIColor colorWithRed:1.0 green:0.4 blue:0.4 alpha:1.0];
+    self.debugStatusLabel.text = msg;
+}
+
+- (void)debugTransformConsolationPrize:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:644];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #644 (Consolation Prize)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformBrimstone:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:118];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #118 (Brimstone)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformMomsKnife:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:114];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #114 (Mom's Knife)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformTrisagion:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:678];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #678 (Trisagion)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformCarBattery:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:356];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #356 (Car Battery)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformTarotCloth:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:451];
+    [self flashDebugMessage:ok ? @"✓ Transformed nearest pedestal to #451 (Tarot Cloth)!"
+                               : @"✗ Failed: No pedestal/pickup nearby to transform."
+                    success:ok];
+}
+
+- (void)debugTransformCustomItem:(id)sender {
+    (void)sender;
+    UIWindow *window = [self gameWindow];
+    UIViewController *presenter = [self topViewControllerFrom:window.rootViewController];
+    if (!presenter) return;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Transform Nearest Pickup"
+                                                                   message:@"Enter Collectible ID (1 - 732):"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"e.g. 644";
+        textField.keyboardType = UIKeyboardTypeNumberPad;
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Transform" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self) return;
+        NSString *text = alert.textFields.firstObject.text;
+        NSInteger itemID = text.integerValue;
+        if (itemID >= 1 && itemID <= 732) {
+            BOOL ok = [self.probe transformNearestPickupToVariant:EIDPickupVariantCollectible subtype:itemID];
+            EIDDescription *desc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible subtype:itemID];
+            NSString *name = desc.name.length ? desc.name : [NSString stringWithFormat:@"#%ld", (long)itemID];
+            [self flashDebugMessage:ok ? [NSString stringWithFormat:@"✓ Transformed to #%ld (%@)!", (long)itemID, name]
+                                       : @"✗ Failed: No pedestal/pickup nearby."
+                            success:ok];
+        } else {
+            [self flashDebugMessage:@"✗ Invalid ID: must be between 1 and 732." success:NO];
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)debugGiveGulpPill:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe giveGulpPillToPocket];
+    [self flashDebugMessage:ok ? @"✓ Gave Gulp! pill to pocket slot 0! (Use pill in-game to swallow trinket)"
+                               : @"✗ Failed to give Gulp! pill."
+                    success:ok];
+}
+
+- (void)debugIdentifyAllPills:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe identifyAllPills];
+    [self flashDebugMessage:ok ? @"✓ All 14 pill colors identified!"
+                               : @"✗ Failed to identify pills."
+                    success:ok];
+}
+
+- (void)debugSmeltCancer:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe smeltTrinketWithPill:39]; // 39 = Cancer
+    [self flashDebugMessage:ok ? @"✓ Gave Cancer (#39) & Gulp! pill to pocket! Use pill to gulp it."
+                               : @"✗ Failed to equip trinket/pill."
+                    success:ok];
+}
+
+- (void)debugSmeltCurvedHorn:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe smeltTrinketWithPill:35]; // 35 = Curved Horn
+    [self flashDebugMessage:ok ? @"✓ Gave Curved Horn (#35) & Gulp! pill to pocket! Use pill to gulp it."
+                               : @"✗ Failed to equip trinket/pill."
+                    success:ok];
+}
+
+- (void)debugGiveTheSun:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe giveCardToPocket:19]; // 19 = The Sun
+    [self flashDebugMessage:ok ? @"✓ Gave Card #19 (The Sun) to pocket slot 0!"
+                               : @"✗ Failed to give card."
+                    success:ok];
+}
+
+- (void)debugGiveTheJoker:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe giveCardToPocket:22]; // 22 = The Joker
+    [self flashDebugMessage:ok ? @"✓ Gave Card #22 (The Joker) to pocket slot 0!"
+                               : @"✗ Failed to give card."
+                    success:ok];
+}
+
+- (void)debugGiveConsumables:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe giveConsumablesCoins:99 bombs:99 keys:99];
+    [self flashDebugMessage:ok ? @"✓ Set 99 Coins, 99 Bombs, 99 Keys!"
+                               : @"✗ Failed to set consumables."
+                    success:ok];
+}
+
+- (void)debugHealPlayer:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe healPlayer];
+    [self flashDebugMessage:ok ? @"✓ Full health and +6 Soul Hearts granted!"
+                               : @"✗ Failed to heal player."
+                    success:ok];
+}
+
+- (void)debugAddDamage:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe addPlayerSpeed:0 damage:5.0f tears:0];
+    [self flashDebugMessage:ok ? @"✓ Added +5.0 Damage! Consolation Prize prediction updated."
+                               : @"✗ Failed to modify damage."
+                    success:ok];
+}
+
+- (void)debugAddTears:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe addPlayerSpeed:0 damage:0 tears:2.0f];
+    [self flashDebugMessage:ok ? @"✓ Boosted Tears (reduced fire delay by 2.0)!"
+                               : @"✗ Failed to modify tears."
+                    success:ok];
+}
+
+- (void)debugAddSpeed:(id)sender {
+    (void)sender;
+    BOOL ok = [self.probe addPlayerSpeed:0.3f damage:0 tears:0];
+    [self flashDebugMessage:ok ? @"✓ Added +0.3 Speed!"
+                               : @"✗ Failed to modify speed."
+                    success:ok];
+}
+#endif
 @end

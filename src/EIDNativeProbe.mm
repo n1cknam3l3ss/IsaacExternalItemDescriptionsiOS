@@ -249,6 +249,7 @@ constexpr uint32_t kGoldenPillColor = 14;
 constexpr size_t kGamePauseMenuStateOffset = 0x10dfd8;
 
 struct VMPickup {
+    vm_address_t address = 0;
     int32_t variant = 0;
     int32_t subtype = 0;
     float x = 0;
@@ -323,6 +324,22 @@ static bool ReadOwnTaskMemory(vm_address_t address, void *destination, vm_size_t
                              reinterpret_cast<vm_address_t>(destination), &copied) == KERN_SUCCESS &&
         copied == size;
 }
+
+#if EID_DEBUG_MENU
+static bool WriteOwnTaskMemory(vm_address_t address, const void *source, vm_size_t size) {
+    if (!address || !source || !size) return false;
+    kern_return_t kr = vm_write(mach_task_self(), address,
+                                reinterpret_cast<vm_offset_t>(source),
+                                static_cast<mach_msg_type_number_t>(size));
+    if (kr != KERN_SUCCESS) {
+        vm_protect(mach_task_self(), address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+        kr = vm_write(mach_task_self(), address,
+                      reinterpret_cast<vm_offset_t>(source),
+                      static_cast<mach_msg_type_number_t>(size));
+    }
+    return kr == KERN_SUCCESS;
+}
+#endif
 
 static bool ReadGameObjectAddress(vm_address_t& gameAddress) {
     gameAddress = 0;
@@ -776,7 +793,7 @@ static bool IsDescribableVariant(int32_t variant) {
         variant == EIDPickupVariantSacrificeRoom;
 }
 
-static void AddVMPickup(VMRegionResult& result, int32_t variant, int32_t subtype,
+static void AddVMPickup(VMRegionResult& result, vm_address_t address, int32_t variant, int32_t subtype,
                         float x, float y, bool hasPosition) {
     if (!IsDescribableVariant(variant) || subtype <= 0 || subtype > 65535) return;
     // Subtype zero and out-of-range tarot IDs are unknown/hidden card identities.
@@ -784,7 +801,7 @@ static void AddVMPickup(VMRegionResult& result, int32_t variant, int32_t subtype
     // Keep duplicate identities: two equal cards/trinkets may exist at different positions,
     // and proximity must choose the actual nearest entity rather than the first copy.
     if (result.pickupCount < result.pickups.size()) {
-        result.pickups[result.pickupCount++] = {variant, subtype, x, y, hasPosition};
+        result.pickups[result.pickupCount++] = {address, variant, subtype, x, y, hasPosition};
     }
 }
 
@@ -836,7 +853,7 @@ static bool ResolveSacrificeRoomSpikes(const ScanContext& context,
         float gridX = 40.0f + 40.0f * static_cast<float>(gridIndex % roomGridWidth);
         float gridY = 80.0f + 40.0f * static_cast<float>(gridIndex / roomGridWidth);
         int32_t payout = varData >= 11 ? 12 : varData + 1;
-        AddVMPickup(result, EIDPickupVariantSacrificeRoom, payout,
+        AddVMPickup(result, gridEntity, EIDPickupVariantSacrificeRoom, payout,
                     gridX, gridY, true);
     }
     return true;
@@ -921,7 +938,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
                     ? PickupVisibilityState(bytes + offset, size - offset)
                     : PickupVisibility::Visible;
                 if (visibility == PickupVisibility::Visible) {
-                    AddVMPickup(result, displayVariant, displaySubtype, x, y, positionAvailable);
+                    AddVMPickup(result, referenceAddress, displayVariant, displaySubtype, x, y, positionAvailable);
                 } else if (visibility == PickupVisibility::Blind) {
                     result.blindPickupCount++;
                 } else {
@@ -978,7 +995,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
                 memcpy(&collectible, bytes + offset + kCranePrizeCollectibleOffset,
                        sizeof(collectible));
                 if (collectible > 0 && collectible <= 4096) {
-                    AddVMPickup(result, EIDPickupVariantCollectible, collectible,
+                    AddVMPickup(result, referenceAddress, EIDPickupVariantCollectible, collectible,
                                 x, y, positionAvailable);
                 }
             }
@@ -995,7 +1012,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
             }
             if (activeObject && identity[0] == 1000 && identity[1] == 76 &&
                 identity[2] >= 0 && identity[2] < 6) {
-                AddVMPickup(result, EIDPickupVariantDiceRoom, identity[2] + 1,
+                AddVMPickup(result, referenceAddress, EIDPickupVariantDiceRoom, identity[2] + 1,
                             x, y, positionAvailable);
             }
         }
@@ -1206,6 +1223,11 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(nonatomic) BOOL pillPoolReady;
 @property(nonatomic) NSUInteger developmentCaptureIndex;
 @property(nonatomic) NSInteger lastPauseState;
+#if EID_DEBUG_MENU
+@property(atomic) uintptr_t primaryPlayerAddress;
+@property(atomic) uintptr_t nearestPickupAddress;
+@property(atomic, copy) NSArray<NSNumber *> *lastPickupAddresses;
+#endif
 @end
 
 @implementation EIDNativeProbe
@@ -1767,7 +1789,7 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         const VMCardObservation& card = pickupResult.cardObservations[index];
         if (card.touched) [self.knownCardSubtypes addObject:@(card.subtype)];
         if (card.touched || [self.knownCardSubtypes containsObject:@(card.subtype)]) {
-            AddVMPickup(pickupResult, EIDPickupVariantCard, card.subtype,
+            AddVMPickup(pickupResult, card.address, EIDPickupVariantCard, card.subtype,
                         card.x, card.y, card.hasPosition);
         }
     }
@@ -1842,6 +1864,9 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
             [pickups addObject:[[EIDPickupIdentity alloc] initWithVariant:closest->variant
                                                                   subtype:closest->subtype]];
         }
+#if EID_DEBUG_MENU
+        self.nearestPickupAddress = closest ? closest->address : 0;
+#endif
     }
     if (!pickups.count && !playerResult.playerCount) {
         for (size_t index = 0; index < pickupResult.pickupCount; ++index) {
@@ -1855,6 +1880,16 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
                                                                   subtype:pickup.subtype]];
         }
     }
+#if EID_DEBUG_MENU
+    self.primaryPlayerAddress = playerResult.playerCount > 0 ? playerResult.players[0].address : 0;
+    NSMutableArray<NSNumber *> *debugAddresses = [NSMutableArray array];
+    for (size_t i = 0; i < pickupResult.pickupCount; ++i) {
+        if (pickupResult.pickups[i].address) {
+            [debugAddresses addObject:@(pickupResult.pickups[i].address)];
+        }
+    }
+    self.lastPickupAddresses = debugAddresses;
+#endif
     self.lastPickups = pickups;
     return pickups;
 }
@@ -1888,4 +1923,151 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         formID >= (NSInteger)self.nativeTransformationCounters.count) return 0;
     return self.nativeTransformationCounters[(NSUInteger)formID].integerValue;
 }
+
+#if EID_DEBUG_MENU
+- (BOOL)transformNearestPickupToVariant:(NSInteger)variant subtype:(NSInteger)subtype {
+    vm_address_t pickupAddr = (vm_address_t)self.nearestPickupAddress;
+    if (!pickupAddr && self.lastPickupAddresses.count > 0) {
+        pickupAddr = (vm_address_t)self.lastPickupAddresses.firstObject.unsignedLongLongValue;
+    }
+    if (!pickupAddr) return NO;
+
+    int32_t type = 5; // EntityType 5 = Pickup
+    int32_t v = (int32_t)variant;
+    int32_t s = (int32_t)subtype;
+    uint8_t zero = 0;
+
+    BOOL ok = YES;
+    ok = ok && WriteOwnTaskMemory(pickupAddr + kEntityTypeOffset, &type, sizeof(type));
+    ok = ok && WriteOwnTaskMemory(pickupAddr + kEntityTypeOffset + 4, &v, sizeof(v));
+    ok = ok && WriteOwnTaskMemory(pickupAddr + kEntityTypeOffset + 8, &s, sizeof(s));
+    WriteOwnTaskMemory(pickupAddr + kPickupTouchedOffset, &zero, sizeof(zero));
+    WriteOwnTaskMemory(pickupAddr + kPickupForceBlindOffset, &zero, sizeof(zero));
+    EIDLog(@"[DEBUG] transformed pickup at 0x%lx to variant %ld subtype %ld (success=%d)",
+           (unsigned long)pickupAddr, (long)variant, (long)subtype, ok);
+    return ok;
+}
+
+- (BOOL)giveGulpPillToPocket {
+    vm_address_t game = 0;
+    if (!ReadGameObjectAddress(game)) return NO;
+    uintptr_t itemPool = game + kGameItemPoolOffset;
+
+    int32_t gulpEffect = 43;
+    uint8_t identified = 1;
+    uint32_t color = 1;
+    WriteOwnTaskMemory(itemPool + kItemPoolPillEffectsOffset + color * sizeof(int32_t),
+                       &gulpEffect, sizeof(gulpEffect));
+    WriteOwnTaskMemory(itemPool + kItemPoolIdentifiedPillsOffset + color,
+                       &identified, sizeof(identified));
+
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    VMPlayerPocketItem pocket;
+    pocket.id = (int32_t)color;
+    pocket.type = 0; // 0 = Pill
+    BOOL ok = WriteOwnTaskMemory(playerAddr + kPlayerPocketItemsOffset, &pocket, sizeof(pocket));
+    EIDLog(@"[DEBUG] gave Gulp! pill to pocket slot 0 (success=%d)", ok);
+    return ok;
+}
+
+- (BOOL)giveCardToPocket:(NSInteger)cardID {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    VMPlayerPocketItem pocket;
+    pocket.id = (int32_t)cardID;
+    pocket.type = 1; // 1 = Card / Rune
+    BOOL ok = WriteOwnTaskMemory(playerAddr + kPlayerPocketItemsOffset, &pocket, sizeof(pocket));
+    EIDLog(@"[DEBUG] gave card %ld to pocket slot 0 (success=%d)", (long)cardID, ok);
+    return ok;
+}
+
+- (BOOL)giveActiveItemToPocket:(NSInteger)collectibleID {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    VMPlayerPocketItem pocket;
+    pocket.id = (int32_t)collectibleID;
+    pocket.type = 2; // 2 = Active item
+    BOOL ok = WriteOwnTaskMemory(playerAddr + kPlayerPocketItemsOffset, &pocket, sizeof(pocket));
+    EIDLog(@"[DEBUG] gave active collectible %ld to pocket slot 0 (success=%d)", (long)collectibleID, ok);
+    return ok;
+}
+
+- (BOOL)giveConsumablesCoins:(NSInteger)coins bombs:(NSInteger)bombs keys:(NSInteger)keys {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    int32_t c = (int32_t)coins;
+    int32_t b = (int32_t)bombs;
+    int32_t k = (int32_t)keys;
+    BOOL ok = YES;
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerCoinsOffset, &c, sizeof(c));
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerBombsOffset, &b, sizeof(b));
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerKeysOffset, &k, sizeof(k));
+    EIDLog(@"[DEBUG] set player consumables: coins=%ld bombs=%ld keys=%ld (success=%d)",
+           (long)coins, (long)bombs, (long)keys, ok);
+    return ok;
+}
+
+- (BOOL)addPlayerSpeed:(float)speedDelta damage:(float)damageDelta tears:(float)tearsDelta {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    float speed = 0;
+    float damage = 0;
+    float fireDelay = 0;
+    ReadOwnTaskMemory(playerAddr + kPlayerMoveSpeedOffset, &speed, sizeof(speed));
+    ReadOwnTaskMemory(playerAddr + kPlayerDamageOffset, &damage, sizeof(damage));
+    ReadOwnTaskMemory(playerAddr + kPlayerMaxFireDelayOffset, &fireDelay, sizeof(fireDelay));
+
+    speed = MAX(0.1f, speed + speedDelta);
+    damage = MAX(0.5f, damage + damageDelta);
+    fireDelay = MAX(1.0f, fireDelay - tearsDelta);
+
+    BOOL ok = YES;
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerMoveSpeedOffset, &speed, sizeof(speed));
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerDamageOffset, &damage, sizeof(damage));
+    ok = ok && WriteOwnTaskMemory(playerAddr + kPlayerMaxFireDelayOffset, &fireDelay, sizeof(fireDelay));
+    EIDLog(@"[DEBUG] updated stats: speed=%.2f damage=%.2f fireDelay=%.2f", speed, damage, fireDelay);
+    return ok;
+}
+
+- (BOOL)smeltTrinketWithPill:(NSInteger)trinketID {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    int32_t t = (int32_t)trinketID;
+    WriteOwnTaskMemory(playerAddr + kPlayerTrinketSlotsOffset, &t, sizeof(t));
+    return [self giveGulpPillToPocket];
+}
+
+- (BOOL)identifyAllPills {
+    vm_address_t game = 0;
+    if (!ReadGameObjectAddress(game)) return NO;
+    uintptr_t itemPool = game + kGameItemPoolOffset;
+    uint8_t one = 1;
+    for (uint32_t color = 1; color <= kGoldenPillColor; ++color) {
+        WriteOwnTaskMemory(itemPool + kItemPoolIdentifiedPillsOffset + color, &one, sizeof(one));
+    }
+    EIDLog(@"[DEBUG] identified all %u pills", kGoldenPillColor);
+    return YES;
+}
+
+- (BOOL)healPlayer {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    int32_t maxHearts = 0;
+    ReadOwnTaskMemory(playerAddr + 0x1a74, &maxHearts, sizeof(maxHearts));
+    if (maxHearts <= 0) maxHearts = 6;
+    WriteOwnTaskMemory(playerAddr + 0x1a70, &maxHearts, sizeof(maxHearts));
+    int32_t soulHearts = 12;
+    WriteOwnTaskMemory(playerAddr + 0x1a78, &soulHearts, sizeof(soulHearts));
+    EIDLog(@"[DEBUG] healed player (maxHearts=%d, soulHearts=%d)", maxHearts, soulHearts);
+    return YES;
+}
+#endif
 @end

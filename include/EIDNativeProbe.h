@@ -56,6 +56,20 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 - (NSInteger)nativeTransformationCounterForFormID:(NSInteger)formID;
 // Compatibility API used by early integrations and exported diagnostic helpers.
 - (NSArray<NSNumber *> *)currentCollectibleIDs;
+#if EID_DEBUG_MENU
+@property(atomic) uintptr_t primaryPlayerAddress;
+@property(atomic) uintptr_t nearestPickupAddress;
+@property(atomic, copy) NSArray<NSNumber *> *lastPickupAddresses;
+- (BOOL)transformNearestPickupToVariant:(NSInteger)variant subtype:(NSInteger)subtype;
+- (BOOL)giveGulpPillToPocket;
+- (BOOL)giveCardToPocket:(NSInteger)cardID;
+- (BOOL)giveActiveItemToPocket:(NSInteger)collectibleID;
+- (BOOL)giveConsumablesCoins:(NSInteger)coins bombs:(NSInteger)bombs keys:(NSInteger)keys;
+- (BOOL)addPlayerSpeed:(float)speedDelta damage:(float)damageDelta tears:(float)tearsDelta;
+- (BOOL)smeltTrinketWithPill:(NSInteger)trinketID;
+- (BOOL)identifyAllPills;
+- (BOOL)healPlayer;
+#endif
 @end
 
 NS_ASSUME_NONNULL_END

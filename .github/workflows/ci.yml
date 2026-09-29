@@ -37,6 +37,9 @@ jobs:
           test -f dist/IsaacExternalItemDescriptions-Embedded.zip
           test -f dist/IsaacExternalItemDescriptions-rootless.deb
           test -f dist/IsaacExternalItemDescriptions-LiveContainer.framework.zip
+          test -f dist/IsaacExternalItemDescriptions-Debug.dylib
+          test -f dist/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip
+          test -f dist/IsaacExternalItemDescriptions-Debug-Embedded.zip
           test -f dist/descriptions.json
           test -f build/IsaacEID.bundle/eid_inline_icons.png
           test -f build/IsaacEID.bundle/eid_inline_icons.anm2
@@ -77,6 +80,9 @@ jobs:
             dist/IsaacExternalItemDescriptions-rootless.deb
             dist/IsaacExternalItemDescriptions-LiveContainer.framework.zip
             dist/IsaacExternalItemDescriptions-Embedded.zip
+            dist/IsaacExternalItemDescriptions-Debug.dylib
+            dist/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip
+            dist/IsaacExternalItemDescriptions-Debug-Embedded.zip
             dist/descriptions.json
             dist/SHA256SUMS
           if-no-files-found: error

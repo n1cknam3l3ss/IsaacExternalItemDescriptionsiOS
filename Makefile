@@ -5,13 +5,21 @@ SDK := $(shell xcrun --sdk iphoneos --show-sdk-path)
 CLANG := $(shell xcrun --sdk iphoneos --find clang)
 MIN_IOS ?= 15.0
 EXTRA_CFLAGS ?=
-DYLIB := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions.dylib
+DEBUG_BUILD ?= 0
+ifeq ($(DEBUG_BUILD),1)
+BUILD_TAG := -Debug
+EXTRA_CFLAGS += -DEID_DEBUG_MENU=1
+else
+BUILD_TAG :=
+endif
+
+DYLIB := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG).dylib
 DEB_STAGE := $(PROJECT_ROOT)/package/stage
-DEB := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions-rootless.deb
-LIVECONTAINER_FRAMEWORK := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions.framework
-LIVECONTAINER_ZIP := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions-LiveContainer.framework.zip
-EMBEDDED_STAGE := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Embedded
-EMBEDDED_ZIP := $(PROJECT_ROOT)/dist/IsaacExternalItemDescriptions-Embedded.zip
+DEB := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions$(BUILD_TAG)-rootless.deb
+LIVECONTAINER_FRAMEWORK := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG).framework
+LIVECONTAINER_ZIP := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions$(BUILD_TAG)-LiveContainer.framework.zip
+EMBEDDED_STAGE := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG)-Embedded
+EMBEDDED_ZIP := $(PROJECT_ROOT)/dist/IsaacExternalItemDescriptions$(BUILD_TAG)-Embedded.zip
 DIST := $(PROJECT_ROOT)/dist
 INCLUDE_DESCRIPTION_DB ?= 1
 BUNDLED_DESCRIPTION_DB := $(PROJECT_ROOT)/data/descriptions.json
@@ -59,11 +67,11 @@ dylib:
 	mkdir -p "$(PROJECT_ROOT)/build"
 	"$(CLANG)" -isysroot "$(SDK)" -arch arm64 -miphoneos-version-min="$(MIN_IOS)" \
 		-fobjc-arc -fmodules -O2 $(EXTRA_CFLAGS) -dynamiclib -I"$(PROJECT_ROOT)/include" \
-		-Wl,-install_name,@rpath/IsaacExternalItemDescriptions.dylib -Wl,-dead_strip -Wl,-fatal_warnings \
+		-Wl,-install_name,@rpath/$(notdir $(DYLIB)) -Wl,-dead_strip -Wl,-fatal_warnings \
 		-Wl,-exported_symbols_list,"$(PROJECT_ROOT)/package/exports.txt" \
 		$(SOURCES) -framework Foundation -framework UIKit -framework QuartzCore -lc++ -o "$(DYLIB)"
 	xcrun strip -x "$(DYLIB)"
-	@if command -v codesign >/dev/null 2>&1; then codesign --force --sign - --timestamp=none --identifier com.emp0ry.isaaceid.dylib "$(DYLIB)"; elif command -v ldid >/dev/null 2>&1; then ldid -S "$(DYLIB)"; fi
+	@if command -v codesign >/dev/null 2>&1; then codesign --force --sign - --timestamp=none --identifier com.emp0ry.isaaceid$(BUILD_TAG).dylib "$(DYLIB)"; elif command -v ldid >/dev/null 2>&1; then ldid -S "$(DYLIB)"; fi
 
 package: dylib
 	rm -rf "$(DEB_STAGE)"
@@ -121,11 +129,22 @@ release:
 	cp "$(DYLIB)" "$(EMBEDDED_STAGE)/IsaacExternalItemDescriptions.dylib"
 	cp -R "$(PARITY_BUNDLE)/." "$(EMBEDDED_STAGE)/IsaacEID.bundle/"
 	/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(EMBEDDED_STAGE)" "$(EMBEDDED_ZIP)"
+	$(MAKE) livecontainer DEBUG_BUILD=1 INCLUDE_DESCRIPTION_DB=1 EXTRA_CFLAGS='-Wall -Wextra -Werror'
+	cp "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug.dylib" "$(DIST)/IsaacExternalItemDescriptions-Debug.dylib"
+	cp "$(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip" "$(DIST)/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip"
+	rm -rf "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded"
+	mkdir -p "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded/IsaacEID.bundle"
+	cp "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug.dylib" "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded/IsaacExternalItemDescriptions.dylib"
+	cp -R "$(PARITY_BUNDLE)/." "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded/IsaacEID.bundle/"
+	/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded" "$(DIST)/IsaacExternalItemDescriptions-Debug-Embedded.zip"
 	cd "$(DIST)" && shasum -a 256 \
 		IsaacExternalItemDescriptions.dylib \
 		IsaacExternalItemDescriptions-rootless.deb \
 		IsaacExternalItemDescriptions-LiveContainer.framework.zip \
 		IsaacExternalItemDescriptions-Embedded.zip \
+		IsaacExternalItemDescriptions-Debug.dylib \
+		IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip \
+		IsaacExternalItemDescriptions-Debug-Embedded.zip \
 		descriptions.json > SHA256SUMS
 
 clean:
