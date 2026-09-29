@@ -12,3 +12,6 @@ package/stage/
 *.json
 !data/descriptions.json
 tools/wait_build.ps1
+tools/check_run.py
+tools/wait_build.py
+tools/create_release.py
