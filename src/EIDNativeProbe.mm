@@ -498,11 +498,35 @@ static bool ReadPlayerSmeltedTrinkets(
     if (!ReadOwnTaskMemory(playerAddress + kPlayerSmeltedTrinketsEndOffset,
                            &end, sizeof(end)) || !end) return true;
     if (end <= begin) return true;
-    size_t count = end - begin;
-    if (count > 2048) return false;
-    std::vector<uint8_t> buffer(count);
-    if (!ReadOwnTaskMemory(begin, buffer.data(), count)) return false;
-    for (size_t i = 1; i < count; ++i) {
+    size_t byteCount = end - begin;
+    if (byteCount > 4096) return false;
+
+    // First attempt: std::vector<int32_t> of trinket IDs (vanilla Isaac representation)
+    if (byteCount % sizeof(int32_t) == 0) {
+        size_t intCount = byteCount / sizeof(int32_t);
+        std::vector<int32_t> intBuffer(intCount);
+        if (ReadOwnTaskMemory(begin, intBuffer.data(), byteCount)) {
+            bool allValidIds = true;
+            for (int32_t val : intBuffer) {
+                int32_t baseId = val & 0x7fff;
+                if (baseId < 1 || baseId > 500) {
+                    allValidIds = false;
+                    break;
+                }
+            }
+            if (allValidIds && intCount > 0) {
+                for (int32_t val : intBuffer) {
+                    outTrinkets.push_back(val);
+                }
+                return true;
+            }
+        }
+    }
+
+    // Fallback: byte count table indexed by trinket ID
+    std::vector<uint8_t> buffer(byteCount);
+    if (!ReadOwnTaskMemory(begin, buffer.data(), byteCount)) return false;
+    for (size_t i = 1; i < byteCount; ++i) {
         if (buffer[i] != 0) {
             int32_t id = static_cast<int32_t>(i);
             if (buffer[i] > 1) {

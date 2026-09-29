@@ -2,6 +2,7 @@
 
 @class EIDDescriptionStore;
 @class EIDNativeProbe;
+@class EIDPickupIdentity;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -10,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)start;
 - (void)showCollectibleID:(NSInteger)collectibleID;
 - (void)setDiagnosticsEnabled:(BOOL)enabled;
+- (NSString *)enrichDescription:(NSString *)originalDetail
+                      forPickup:(EIDPickupIdentity *)pickup
+                 displaySubtype:(NSInteger)displaySubtype;
 @end
 
 NS_ASSUME_NONNULL_END

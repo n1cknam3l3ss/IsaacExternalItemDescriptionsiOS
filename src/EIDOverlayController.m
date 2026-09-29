@@ -957,60 +957,64 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
     }
 
     // 1. Consolation Prize (ID 644)
-    if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 644 && stats != nil) {
-        double speedScore = round(((stats.moveSpeed * 4.5) - 2.0) * 100.0) / 100.0;
-        double fireRate = 30.0 / (MAX(0.0, (double)stats.maxFireDelay) + 1.0);
-        double tearsScore = round(((pow(fireRate, 0.75) * 2.120391) - 2.0) * 100.0) / 100.0;
-        double dmg = MAX(0.0, (double)stats.damage);
-        double damageScore = round(((pow(dmg, 0.56) * 2.231179) - 2.0) * 100.0) / 100.0;
-        double rangeScore = round((((stats.tearRange - 230.0) / 60.0) + 2.0) * 100.0) / 100.0;
+    if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 644) {
+        if (stats != nil) {
+            double speedScore = round(((stats.moveSpeed * 4.5) - 2.0) * 100.0) / 100.0;
+            double fireRate = 30.0 / (MAX(0.0, (double)stats.maxFireDelay) + 1.0);
+            double tearsScore = round(((pow(fireRate, 0.75) * 2.120391) - 2.0) * 100.0) / 100.0;
+            double dmg = MAX(0.0, (double)stats.damage);
+            double damageScore = round(((pow(dmg, 0.56) * 2.231179) - 2.0) * 100.0) / 100.0;
+            double rangeScore = round((((stats.tearRange - 230.0) / 60.0) + 2.0) * 100.0) / 100.0;
 
-        double scores[4] = { speedScore, tearsScore, damageScore, rangeScore };
-        double minScore = scores[0];
-        for (int i = 1; i < 4; ++i) {
-            if (scores[i] < minScore) minScore = scores[i];
-        }
-        NSMutableArray<NSNumber *> *lowestStats = [NSMutableArray array];
-        for (int i = 0; i < 4; ++i) {
-            if (fabs(scores[i] - minScore) < 0.001) {
-                [lowestStats addObject:@(i)];
+            double scores[4] = { speedScore, tearsScore, damageScore, rangeScore };
+            double minScore = scores[0];
+            for (int i = 1; i < 4; ++i) {
+                if (scores[i] < minScore) minScore = scores[i];
             }
-        }
-
-        int coins = stats.coins;
-        int bombs = stats.bombs * 3;
-        int keys = stats.keys * 3;
-        int pScores[3] = { coins, bombs, keys };
-        int minPickup = pScores[0];
-        for (int i = 1; i < 3; ++i) {
-            if (pScores[i] < minPickup) minPickup = pScores[i];
-        }
-        NSMutableArray<NSNumber *> *lowestPickups = [NSMutableArray array];
-        for (int i = 0; i < 3; ++i) {
-            if (pScores[i] == minPickup) {
-                [lowestPickups addObject:@(i)];
+            NSMutableArray<NSNumber *> *lowestStats = [NSMutableArray array];
+            for (int i = 0; i < 4; ++i) {
+                if (fabs(scores[i] - minScore) < 0.001) {
+                    [lowestStats addObject:@(i)];
+                }
             }
-        }
 
-        for (NSNumber *sNum in lowestStats) {
-            int s = sNum.intValue;
-            NSString *statStr = nil;
-            if (s == 0) statStr = isRussian ? @"↑ {{Speed}} +0.2 к скорости" : @"↑ {{Speed}} +0.2 Speed";
-            else if (s == 1) statStr = isRussian ? @"↑ {{Tears}} +0.5 к скорострельности" : @"↑ {{Tears}} +0.5 Fire rate";
-            else if (s == 2) statStr = isRussian ? @"↑ {{Damage}} +1 к урону" : @"↑ {{Damage}} +1 Damage";
-            else if (s == 3) statStr = isRussian ? @"↑ {{Range}} +2.5 к дальности" : @"↑ {{Range}} +2.5 Range";
-            if (lowestStats.count > 1) statStr = [statStr stringByAppendingString:@"?"];
-            appendLine(statStr);
-        }
+            int coins = stats.coins;
+            int bombs = stats.bombs * 3;
+            int keys = stats.keys * 3;
+            int pScores[3] = { coins, bombs, keys };
+            int minPickup = pScores[0];
+            for (int i = 1; i < 3; ++i) {
+                if (pScores[i] < minPickup) minPickup = pScores[i];
+            }
+            NSMutableArray<NSNumber *> *lowestPickups = [NSMutableArray array];
+            for (int i = 0; i < 3; ++i) {
+                if (pScores[i] == minPickup) {
+                    [lowestPickups addObject:@(i)];
+                }
+            }
 
-        for (NSNumber *pNum in lowestPickups) {
-            int p = pNum.intValue;
-            NSString *pStr = nil;
-            if (p == 0) pStr = isRussian ? @"{{Coin}} 3 монеты" : @"{{Coin}} 3 Coins";
-            else if (p == 1) pStr = isRussian ? @"{{Bomb}} 1 бомба" : @"{{Bomb}} 1 Bomb";
-            else if (p == 2) pStr = isRussian ? @"{{Key}} 1 ключ" : @"{{Key}} 1 Key";
-            if (lowestPickups.count > 1) pStr = [pStr stringByAppendingString:@"?"];
-            appendLine(pStr);
+            for (NSNumber *sNum in lowestStats) {
+                int s = sNum.intValue;
+                NSString *statStr = nil;
+                if (s == 0) statStr = isRussian ? @"↑ {{Speed}} +0.2 к скорости" : @"↑ {{Speed}} +0.2 Speed";
+                else if (s == 1) statStr = isRussian ? @"↑ {{Tears}} +0.5 к скорострельности" : @"↑ {{Tears}} +0.5 Fire rate";
+                else if (s == 2) statStr = isRussian ? @"↑ {{Damage}} +1 к урону" : @"↑ {{Damage}} +1 Damage";
+                else if (s == 3) statStr = isRussian ? @"↑ {{Range}} +2.5 к дальности" : @"↑ {{Range}} +2.5 Range";
+                if (lowestStats.count > 1) statStr = [statStr stringByAppendingString:@"?"];
+                appendLine(statStr);
+            }
+
+            for (NSNumber *pNum in lowestPickups) {
+                int p = pNum.intValue;
+                NSString *pStr = nil;
+                if (p == 0) pStr = isRussian ? @"{{Coin}} 3 монеты" : @"{{Coin}} 3 Coins";
+                else if (p == 1) pStr = isRussian ? @"{{Bomb}} 1 бомба" : @"{{Bomb}} 1 Bomb";
+                else if (p == 2) pStr = isRussian ? @"{{Key}} 1 ключ" : @"{{Key}} 1 Key";
+                if (lowestPickups.count > 1) pStr = [pStr stringByAppendingString:@"?"];
+                appendLine(pStr);
+            }
+        } else {
+            appendLine(isRussian ? @"{{ArrowUp}} Даёт бонус к наименьшему стату + расходники" : @"{{ArrowUp}} Gives boost to lowest stat + pickups");
         }
     }
 

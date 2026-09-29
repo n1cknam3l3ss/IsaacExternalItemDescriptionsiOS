@@ -11,3 +11,4 @@ package/stage/
 *.log
 *.json
 !data/descriptions.json
+tools/wait_build.ps1
