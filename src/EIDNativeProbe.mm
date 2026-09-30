@@ -212,9 +212,12 @@ constexpr size_t kPlayerMoveSpeedOffset = 0x194c;
 constexpr size_t kPlayerMaxFireDelayOffset = 0x1834;
 constexpr size_t kPlayerDamageOffset = 0x1844;
 constexpr size_t kPlayerTearRangeOffset = 0x1854;
-constexpr size_t kPlayerCoinsOffset = 0x1c74;
-constexpr size_t kPlayerBombsOffset = 0x1c70;
-constexpr size_t kPlayerKeysOffset = 0x1c68;
+constexpr size_t kPlayerHeartsOffset = 0x16cc;
+constexpr size_t kPlayerMaxHeartsOffset = 0x16d0;
+constexpr size_t kPlayerKeysOffset = 0x16d4;
+constexpr size_t kPlayerBombsOffset = 0x16dc;
+constexpr size_t kPlayerCoinsOffset = 0x16e0;
+constexpr size_t kPlayerSoulHeartsOffset = 0x16f4;
 constexpr size_t kPlayerCollectibleCountsOffset = 0x1ab8;
 constexpr size_t kPlayerTransformationCountersOffset = 0x1c54;
 constexpr size_t kNativeTransformationCount = 15;
@@ -2039,11 +2042,11 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
     if (!playerAddr) return NO;
 
     int32_t maxHearts = 0;
-    ReadOwnTaskMemory(playerAddr + 0x1a74, &maxHearts, sizeof(maxHearts));
+    ReadOwnTaskMemory(playerAddr + kPlayerMaxHeartsOffset, &maxHearts, sizeof(maxHearts));
     if (maxHearts <= 0) maxHearts = 6;
-    WriteOwnTaskMemory(playerAddr + 0x1a70, &maxHearts, sizeof(maxHearts));
+    WriteOwnTaskMemory(playerAddr + kPlayerHeartsOffset, &maxHearts, sizeof(maxHearts));
     int32_t soulHearts = 12;
-    WriteOwnTaskMemory(playerAddr + 0x1a78, &soulHearts, sizeof(soulHearts));
+    WriteOwnTaskMemory(playerAddr + kPlayerSoulHeartsOffset, &soulHearts, sizeof(soulHearts));
     EIDLog(@"[DEBUG] healed player (maxHearts=%d, soulHearts=%d)", maxHearts, soulHearts);
     return YES;
 }

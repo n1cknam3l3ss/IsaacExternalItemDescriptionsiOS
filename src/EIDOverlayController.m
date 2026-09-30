@@ -1521,16 +1521,21 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
 
 - (void)updateDebugStatus {
     if (!self.debugStatusLabel) return;
+    EIDPlayerStats *stats = self.probe.primaryPlayerStats;
+    NSString *pStats = stats != nil
+        ? [NSString stringWithFormat:@" [🪙%ld 💣%ld 🔑%ld]", (long)stats.coins, (long)stats.bombs, (long)stats.keys]
+        : @"";
     if (self.probe.nearestPickupAddress) {
         self.debugStatusLabel.text = [NSString stringWithFormat:
-            @"Nearest Pickup at 0x%lx\nPlayer: active · ready for transformation",
-            (unsigned long)self.probe.nearestPickupAddress];
+            @"Nearest Pickup at 0x%lx\nPlayer: active%@ · ready",
+            (unsigned long)self.probe.nearestPickupAddress, pStats];
     } else if (self.probe.lastPickupAddresses.count > 0) {
         self.debugStatusLabel.text = [NSString stringWithFormat:
-            @"%lu pickups detected in room (nearest: none)\nStand close to an item to transform it",
-            (unsigned long)self.probe.lastPickupAddresses.count];
+            @"%lu pickups in room%@\nStand close to an item to transform it",
+            (unsigned long)self.probe.lastPickupAddresses.count, pStats];
     } else {
-        self.debugStatusLabel.text = @"No pickups found in current room.\nEnter an item/boss/shop room first.";
+        self.debugStatusLabel.text = [NSString stringWithFormat:
+            @"No pickups in room%@\nEnter an item/boss/shop room first.", pStats];
     }
 }
 
