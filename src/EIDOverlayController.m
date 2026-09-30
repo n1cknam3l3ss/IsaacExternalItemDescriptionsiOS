@@ -1381,7 +1381,7 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
 }
 
 - (void)buildDebugControlsInScrollView:(UIScrollView *)scroll width:(CGFloat)width {
-    CGFloat y = 4;
+    __block CGFloat y = 4;
     CGFloat colW = (width - 8) * 0.5;
     CGFloat btnH = 32;
     CGFloat space = 6;

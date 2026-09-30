@@ -1223,11 +1223,6 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(nonatomic) BOOL pillPoolReady;
 @property(nonatomic) NSUInteger developmentCaptureIndex;
 @property(nonatomic) NSInteger lastPauseState;
-#if EID_DEBUG_MENU
-@property(atomic) uintptr_t primaryPlayerAddress;
-@property(atomic) uintptr_t nearestPickupAddress;
-@property(atomic, copy) NSArray<NSNumber *> *lastPickupAddresses;
-#endif
 @end
 
 @implementation EIDNativeProbe
