@@ -18,7 +18,8 @@ headers = {
     'User-Agent': 'Python'
 }
 
-run_id = '36671573531'
+import sys
+run_id = sys.argv[1] if len(sys.argv) > 1 else '36671865380'
 jobs_req = urllib.request.Request(f'https://api.github.com/repos/n1cknam3l3ss/IsaacExternalItemDescriptionsiOS/actions/runs/{run_id}/jobs', headers=headers)
 with urllib.request.urlopen(jobs_req) as resp:
     jobs = json.loads(resp.read().decode('utf-8'))

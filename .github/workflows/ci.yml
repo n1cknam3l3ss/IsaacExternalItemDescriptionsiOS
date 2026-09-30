@@ -54,8 +54,8 @@ jobs:
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/eid_inline_icons.png'
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/eid_transform_icons.png'
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/transformations.json'
-          python3 -c "data = open('dist/IsaacExternalItemDescriptions-Debug.dylib', 'rb').read(); assert b'toggleDebugMenu' in data, 'Missing toggleDebugMenu in debug dylib'; assert b'Debug Console' in data, 'Missing Debug Console in debug dylib'"
-          python3 -c "data = open('dist/IsaacExternalItemDescriptions.dylib', 'rb').read(); assert b'toggleDebugMenu' not in data, 'Clean dylib contains toggleDebugMenu'; assert b'Debug Console' not in data, 'Clean dylib contains Debug Console'"
+          python3 -c "data = open('dist/IsaacExternalItemDescriptions-Debug.dylib', 'rb').read(); assert b'toggleDebugMenu' in data, 'Missing toggleDebugMenu in debug dylib'; assert b'debugTransformConsolationPrize' in data, 'Missing debugTransformConsolationPrize in debug dylib'"
+          python3 -c "data = open('dist/IsaacExternalItemDescriptions.dylib', 'rb').read(); assert b'toggleDebugMenu' not in data, 'Clean dylib contains toggleDebugMenu'; assert b'debugTransformConsolationPrize' not in data, 'Clean dylib contains debugTransformConsolationPrize'"
 
       - name: Create one full downloadable archive
         run: |
