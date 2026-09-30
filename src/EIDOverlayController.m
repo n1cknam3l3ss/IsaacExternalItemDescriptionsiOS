@@ -16,6 +16,11 @@ static const CGFloat EIDItemIconSize = 28.0;
 static const CGFloat EIDItemIconSpacing = 6.0;
 static NSString *const EIDHorizontalPositionKey = @"IsaacEIDHorizontalPosition";
 static NSString *const EIDVerticalPositionKey = @"IsaacEIDVerticalPosition";
+static NSString *const EIDBoxTransparencyKey = @"IsaacEIDBoxTransparency";
+static const CGFloat EIDDefaultBoxTransparency = 0.28;
+static const CGFloat EIDPanelCornerRadius = 8.0;
+static const CGFloat EIDPanelPaddingX = 8.0;
+static const CGFloat EIDPanelPaddingY = 6.0;
 
 static NSString *EIDGameResourcePath(NSString *relativePath) {
     NSArray<NSString *> *roots = @[@"repentance-resources", @"afterbirthplus-resources",
@@ -207,8 +212,12 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     panel.frame = CGRectMake(leftMargin, [self overlayTopMargin],
                              MIN(340, window.bounds.size.width - leftMargin - EIDOverlayRightMargin),
                              80);
-    panel.backgroundColor = UIColor.clearColor;
-    panel.clipsToBounds = NO;
+    CGFloat boxAlpha = [[NSUserDefaults standardUserDefaults] objectForKey:EIDBoxTransparencyKey]
+        ? [[NSUserDefaults standardUserDefaults] doubleForKey:EIDBoxTransparencyKey]
+        : EIDDefaultBoxTransparency;
+    panel.backgroundColor = [UIColor colorWithWhite:0 alpha:boxAlpha];
+    panel.layer.cornerRadius = EIDPanelCornerRadius;
+    panel.clipsToBounds = YES;
     panel.alpha = 0;
     panel.userInteractionEnabled = YES;
     panel.autoresizingMask = UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin;
@@ -1221,38 +1230,56 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
     CGRect bounds = self.rootView.bounds;
     CGFloat leftMargin = [self overlayLeftMargin];
     CGFloat availableWidth = MAX(180, bounds.size.width - leftMargin - EIDOverlayRightMargin);
-    CGFloat width = MIN(390, MAX(270, bounds.size.width * 0.42));
-    width = MIN(width, availableWidth);
+    CGFloat maxPanelWidth = MIN(390, MAX(270, bounds.size.width * 0.42));
+    maxPanelWidth = MIN(maxPanelWidth, availableWidth);
+
+    CGFloat scale = 1.0;
+    NSNumber *scaleNum = [[NSUserDefaults standardUserDefaults] objectForKey:@"IsaacEIDScale"];
+    if (scaleNum) {
+        scale = MIN(1.8, MAX(0.5, [scaleNum doubleValue]));
+    }
+    CGFloat paddingH = MAX(6.0, round(EIDPanelPaddingX * scale));
+    CGFloat paddingV = MAX(5.0, round(EIDPanelPaddingY * scale));
+    CGFloat maxContentWidth = maxPanelWidth - (paddingH * 2.0);
     CGFloat iconSpace = self.itemIconView.hidden ? 0 : EIDItemIconSize + EIDItemIconSpacing;
-    CGFloat textWidth = MAX(120, width - iconSpace);
+    CGFloat textMaxWidth = MAX(120, maxContentWidth - iconSpace);
     CGFloat topMargin = [self overlayTopMargin];
-    CGFloat maximumHeight = MAX(100, bounds.size.height - topMargin - 16);
+    CGFloat maximumHeight = MAX(100, bounds.size.height - topMargin - 16 - (paddingV * 2.0));
 
     CGFloat fontSize = 10.5;
     CGSize textSize = CGSizeZero;
     do {
         self.label.font = [UIFont systemFontOfSize:fontSize weight:UIFontWeightSemibold];
-        textSize = [self.label sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)];
+        textSize = [self.label sizeThatFits:CGSizeMake(textMaxWidth, CGFLOAT_MAX)];
         fontSize -= 0.5;
     } while (textSize.height > maximumHeight && fontSize >= 7.5);
 
     // Very long imported descriptions can use more horizontal room, but are never
     // clipped to an arbitrary character or line count.
-    if (textSize.height > maximumHeight && width < availableWidth) {
-        width = MIN(availableWidth, MAX(width, bounds.size.width * 0.58));
-        textWidth = MAX(120, width - iconSpace);
-        textSize = [self.label sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)];
+    if (textSize.height > maximumHeight && maxPanelWidth < availableWidth) {
+        maxPanelWidth = MIN(availableWidth, MAX(maxPanelWidth, bounds.size.width * 0.58));
+        maxContentWidth = maxPanelWidth - (paddingH * 2.0);
+        textMaxWidth = MAX(120, maxContentWidth - iconSpace);
+        textSize = [self.label sizeThatFits:CGSizeMake(textMaxWidth, CGFLOAT_MAX)];
     }
-    CGFloat height = MAX(EIDItemIconSize, textSize.height);
-    self.panel.frame = CGRectMake(leftMargin, topMargin, width, height);
-    self.itemIconView.frame = CGRectMake(0, 1, EIDItemIconSize, EIDItemIconSize);
-    self.label.frame = CGRectMake(iconSpace, 0, textWidth, height);
+
+    CGFloat fittedTextWidth = MIN(textMaxWidth, ceil(textSize.width) + 3.0);
+    CGFloat contentWidth = fittedTextWidth + iconSpace;
+    CGFloat panelWidth = contentWidth + (paddingH * 2.0);
+    CGFloat contentHeight = MAX(self.itemIconView.hidden ? 0 : EIDItemIconSize, ceil(textSize.height));
+    CGFloat panelHeight = contentHeight + (paddingV * 2.0);
+
+    self.panel.layer.cornerRadius = round(EIDPanelCornerRadius * scale);
+    self.panel.frame = CGRectMake(leftMargin, topMargin, panelWidth, panelHeight);
+    self.itemIconView.frame = CGRectMake(paddingH, paddingV + 1, EIDItemIconSize, EIDItemIconSize);
+    self.label.frame = CGRectMake(paddingH + iconSpace, paddingV, fittedTextWidth, contentHeight);
     if (!self.loggedOverlayLayout) {
         self.loggedOverlayLayout = YES;
-        EIDLog(@"overlay layout fixed at x %.0f y %.0f, icon origin x %.0f",
+        EIDLog(@"overlay layout fixed at x %.0f y %.0f, size %.0fx%.0f",
                self.panel.frame.origin.x,
                self.panel.frame.origin.y,
-               self.panel.frame.origin.x + self.itemIconView.frame.origin.x);
+               panelWidth,
+               panelHeight);
     }
 }
 
