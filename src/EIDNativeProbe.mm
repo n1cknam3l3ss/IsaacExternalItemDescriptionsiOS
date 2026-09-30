@@ -206,15 +206,15 @@ constexpr size_t kPlayerPocketItemsOffset = 0x1c10;
 constexpr size_t kPlayerPocketItemCount = 4;
 constexpr size_t kPlayerTrinketSlotsOffset = 0x1ab0;
 constexpr size_t kPlayerTrinketSlotCount = 2;
-constexpr size_t kPlayerSmeltedTrinketsBeginOffset = 0x29a0;
-constexpr size_t kPlayerSmeltedTrinketsEndOffset = 0x29a8;
+constexpr size_t kPlayerSmeltedTrinketsBeginOffset = 0x1b60;
+constexpr size_t kPlayerSmeltedTrinketsEndOffset = 0x1b68;
 constexpr size_t kPlayerMoveSpeedOffset = 0x194c;
 constexpr size_t kPlayerMaxFireDelayOffset = 0x1834;
 constexpr size_t kPlayerDamageOffset = 0x1844;
 constexpr size_t kPlayerTearRangeOffset = 0x1854;
-constexpr size_t kPlayerCoinsOffset = 0x26ac;
-constexpr size_t kPlayerBombsOffset = 0x26a8;
-constexpr size_t kPlayerKeysOffset = 0x26a0;
+constexpr size_t kPlayerCoinsOffset = 0x1c74;
+constexpr size_t kPlayerBombsOffset = 0x1c70;
+constexpr size_t kPlayerKeysOffset = 0x1c68;
 constexpr size_t kPlayerCollectibleCountsOffset = 0x1ab8;
 constexpr size_t kPlayerTransformationCountersOffset = 0x1c54;
 constexpr size_t kNativeTransformationCount = 15;
@@ -505,6 +505,11 @@ static bool ReadPlayerTrinkets(
     return true;
 }
 
+struct VMSmeltedTrinketSlot {
+    int16_t regularCount;
+    int16_t goldenCount;
+};
+
 static bool ReadPlayerSmeltedTrinkets(
     vm_address_t playerAddress,
     std::vector<int32_t>& outTrinkets) {
@@ -518,38 +523,16 @@ static bool ReadPlayerSmeltedTrinkets(
     size_t byteCount = end - begin;
     if (byteCount > 4096) return false;
 
-    // First attempt: std::vector<int32_t> of trinket IDs (vanilla Isaac representation)
-    if (byteCount % sizeof(int32_t) == 0) {
-        size_t intCount = byteCount / sizeof(int32_t);
-        std::vector<int32_t> intBuffer(intCount);
-        if (ReadOwnTaskMemory(begin, intBuffer.data(), byteCount)) {
-            bool allValidIds = true;
-            for (int32_t val : intBuffer) {
-                int32_t baseId = val & 0x7fff;
-                if (baseId < 1 || baseId > 500) {
-                    allValidIds = false;
-                    break;
-                }
-            }
-            if (allValidIds && intCount > 0) {
-                for (int32_t val : intBuffer) {
-                    outTrinkets.push_back(val);
-                }
-                return true;
-            }
-        }
-    }
+    size_t slotCount = byteCount / sizeof(VMSmeltedTrinketSlot);
+    std::vector<VMSmeltedTrinketSlot> slots(slotCount);
+    if (!ReadOwnTaskMemory(begin, slots.data(), byteCount)) return false;
 
-    // Fallback: byte count table indexed by trinket ID
-    std::vector<uint8_t> buffer(byteCount);
-    if (!ReadOwnTaskMemory(begin, buffer.data(), byteCount)) return false;
-    for (size_t i = 1; i < byteCount; ++i) {
-        if (buffer[i] != 0) {
-            int32_t id = static_cast<int32_t>(i);
-            if (buffer[i] > 1) {
-                id |= 0x8000;
-            }
-            outTrinkets.push_back(id);
+    for (size_t id = 1; id < slotCount; ++id) {
+        if (slots[id].regularCount > 0 && slots[id].regularCount < 100) {
+            outTrinkets.push_back(static_cast<int32_t>(id));
+        }
+        if (slots[id].goldenCount > 0 && slots[id].goldenCount < 100) {
+            outTrinkets.push_back(static_cast<int32_t>(id | 0x8000));
         }
     }
     return true;
