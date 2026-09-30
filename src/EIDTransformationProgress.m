@@ -10,7 +10,9 @@ static NSString *EIDTransformResourcePath(void) {
         [main stringByAppendingPathComponent:@"Frameworks/IsaacEID.bundle"],
         [main stringByAppendingPathComponent:@"IsaacEID.bundle"],
         [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions.framework/Resources/IsaacEID.bundle"],
+        [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions-Debug.framework/Resources/IsaacEID.bundle"],
         [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions.framework/IsaacEID.bundle"],
+        [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions-Debug.framework/IsaacEID.bundle"],
         [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/IsaacExternalItemDescriptions"],
         @"/var/jb/Library/Application Support/IsaacExternalItemDescriptions",
         @"/Library/Application Support/IsaacExternalItemDescriptions"

@@ -16,7 +16,7 @@ endif
 DYLIB := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG).dylib
 DEB_STAGE := $(PROJECT_ROOT)/package/stage
 DEB := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions$(BUILD_TAG)-rootless.deb
-LIVECONTAINER_FRAMEWORK := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG).framework
+LIVECONTAINER_FRAMEWORK := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions.framework
 LIVECONTAINER_ZIP := $(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions$(BUILD_TAG)-LiveContainer.framework.zip
 EMBEDDED_STAGE := $(PROJECT_ROOT)/build/IsaacExternalItemDescriptions$(BUILD_TAG)-Embedded
 EMBEDDED_ZIP := $(PROJECT_ROOT)/dist/IsaacExternalItemDescriptions$(BUILD_TAG)-Embedded.zip

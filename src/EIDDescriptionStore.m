@@ -304,7 +304,13 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 - (NSArray<NSString *> *)importedDescriptionPaths {
     NSString *appSupport = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/IsaacExternalItemDescriptions/descriptions.json"];
     NSString *embedded = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/IsaacEID.bundle/descriptions.json"];
-    NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithObjects:appSupport, embedded, nil];
+    NSString *main = NSBundle.mainBundle.bundlePath;
+    NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithObjects:
+        appSupport,
+        embedded,
+        [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions.framework/Resources/IsaacEID.bundle/descriptions.json"],
+        [main stringByAppendingPathComponent:@"Frameworks/IsaacExternalItemDescriptions-Debug.framework/Resources/IsaacEID.bundle/descriptions.json"],
+        nil];
     NSString *ownImageDirectory = EIDOwnImageDirectory();
     if (ownImageDirectory.length) {
         [paths addObject:[ownImageDirectory stringByAppendingPathComponent:@"IsaacEID.bundle/descriptions.json"]];
