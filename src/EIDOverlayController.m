@@ -446,7 +446,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     [root addSubview:settingsCard];
     [root addSubview:inventoryCard];
 #if EID_DEBUG_MENU
-    [self setupDebugCardInWindow:window];
+    [self setupDebugCardInRootView:root window:window];
 #endif
     [window addSubview:root];
     self.rootView = root;
@@ -1308,7 +1308,7 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
 }
 
 #if EID_DEBUG_MENU
-- (void)setupDebugCardInWindow:(UIWindow *)window {
+- (void)setupDebugCardInRootView:(UIView *)root window:(UIWindow *)window {
     CGFloat cardWidth = MIN(440, window.bounds.size.width - 24);
     CGFloat cardHeight = MIN(360, window.bounds.size.height - 24);
     UIView *card = [[UIView alloc] initWithFrame:
@@ -1360,7 +1360,7 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
 
     [self buildDebugControlsInScrollView:scroll width:cardWidth - 24];
 
-    [self.rootView addSubview:card];
+    [root addSubview:card];
     self.debugCard = card;
 }
 
