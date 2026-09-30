@@ -54,6 +54,9 @@ jobs:
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/eid_inline_icons.png'
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/eid_transform_icons.png'
           unzip -l dist/IsaacExternalItemDescriptions-Embedded.zip | grep 'IsaacEID.bundle/transformations.json'
+          strings dist/IsaacExternalItemDescriptions-Debug.dylib | grep -q 'toggleDebugMenu'
+          strings dist/IsaacExternalItemDescriptions-Debug.dylib | grep -q 'Debug Console'
+          if strings dist/IsaacExternalItemDescriptions.dylib | grep -q 'toggleDebugMenu'; then echo "Clean dylib contains debug symbols!"; exit 1; fi
 
       - name: Create one full downloadable archive
         run: |

@@ -8,7 +8,7 @@ EXTRA_CFLAGS ?=
 DEBUG_BUILD ?= 0
 ifeq ($(DEBUG_BUILD),1)
 BUILD_TAG := -Debug
-EXTRA_CFLAGS += -DEID_DEBUG_MENU=1
+override EXTRA_CFLAGS += -DEID_DEBUG_MENU=1
 else
 BUILD_TAG :=
 endif
@@ -129,7 +129,7 @@ release:
 	cp "$(DYLIB)" "$(EMBEDDED_STAGE)/IsaacExternalItemDescriptions.dylib"
 	cp -R "$(PARITY_BUNDLE)/." "$(EMBEDDED_STAGE)/IsaacEID.bundle/"
 	/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(EMBEDDED_STAGE)" "$(EMBEDDED_ZIP)"
-	$(MAKE) livecontainer DEBUG_BUILD=1 INCLUDE_DESCRIPTION_DB=1 EXTRA_CFLAGS='-Wall -Wextra -Werror'
+	$(MAKE) livecontainer DEBUG_BUILD=1 INCLUDE_DESCRIPTION_DB=1 EXTRA_CFLAGS='-Wall -Wextra -Werror -DEID_DEBUG_MENU=1'
 	cp "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug.dylib" "$(DIST)/IsaacExternalItemDescriptions-Debug.dylib"
 	cp "$(PROJECT_ROOT)/packages/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip" "$(DIST)/IsaacExternalItemDescriptions-Debug-LiveContainer.framework.zip"
 	rm -rf "$(PROJECT_ROOT)/build/IsaacExternalItemDescriptions-Debug-Embedded"
