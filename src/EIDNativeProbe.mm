@@ -4,6 +4,7 @@
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <mach/mach.h>
+#import <mach/mach_time.h>
 #import <UIKit/UIKit.h>
 
 #include <algorithm>
@@ -11,7 +12,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifndef EID_DEVELOPMENT_LAYOUT_CAPTURE
@@ -342,7 +345,10 @@ static bool WriteOwnTaskMemory(vm_address_t address, const void *source, vm_size
                                 reinterpret_cast<vm_offset_t>(source),
                                 static_cast<mach_msg_type_number_t>(size));
     if (kr != KERN_SUCCESS) {
-        vm_protect(mach_task_self(), address, size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+        vm_size_t pageSize = vm_page_size ? vm_page_size : 16384;
+        vm_address_t page = address & ~(pageSize - 1);
+        vm_size_t protectSize = ((address + size + pageSize - 1) & ~(pageSize - 1)) - page;
+        vm_protect(mach_task_self(), page, protectSize, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
         kr = vm_write(mach_task_self(), address,
                       reinterpret_cast<vm_offset_t>(source),
                       static_cast<mach_msg_type_number_t>(size));
@@ -1238,6 +1244,122 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(nonatomic) NSInteger lastPauseState;
 @end
 
+// -----------------------------------------------------------------------------
+// Action 11 (ACTION_DROP / Right Trigger / Touch Drop) Frame Repeat Bug Fix
+// -----------------------------------------------------------------------------
+// In the iOS port of The Binding of Isaac: Repentance, holding RT (Right Trigger
+// on gamepads) or the on-screen touch drop button causes the engine's input layer
+// to report IsActionTriggered = true every single frame (60 times/sec).
+// Consequently, active items with Schoolbag (534) and pocket items (Starter Deck,
+// Deep Pockets, Little Baggy) rapidly cycle every frame, making selection impossible.
+//
+// We hook DeviceBase::IsActionTriggered across all input device vtables in __DATA_CONST:
+// - InputDeviceBase::vtable[10] at 0x100a918b0
+// - DeviceGamepad::vtable[10]   at 0x100a91a60
+// - DeviceiOS::vtable[10]       at 0x100a92dd8
+// - DeviceKeyboard::vtable[10]  at 0x100a949a8
+//
+// Our hook enforces rising-edge transition detection (triggering only on the initial
+// frame of a press) and a 100ms debounce guard between distinct taps. While held,
+// IsActionTriggered returns false so active items and pocket items remain stable,
+// while IsActionPressed continues to return true so holding to drop trinkets and
+// pocket items works completely naturally.
+// -----------------------------------------------------------------------------
+typedef bool (*Device_IsActionTriggered_t)(void *device, int action);
+typedef bool (*Device_IsActionPressed_t)(void *device, int action);
+
+static Device_IsActionTriggered_t s_orig_Device_IsActionTriggered = nullptr;
+static Device_IsActionPressed_t s_orig_Device_IsActionPressed = nullptr;
+
+struct DropDebounceState {
+    bool wasPressed = false;
+    uint64_t lastTriggerTime = 0;
+};
+
+static std::unordered_map<void *, DropDebounceState> s_dropStates;
+static std::mutex s_dropMutex;
+
+static bool Hook_Device_IsActionTriggered(void *device, int action) {
+    if (!s_orig_Device_IsActionTriggered) return false;
+
+    bool rawTriggered = s_orig_Device_IsActionTriggered(device, action);
+
+    // Only intercept ACTION_DROP (11). All other game actions pass through unmodified.
+    if (action != 11) {
+        return rawTriggered;
+    }
+
+    std::lock_guard<std::mutex> lock(s_dropMutex);
+
+    bool isPressed = false;
+    if (s_orig_Device_IsActionPressed) {
+        isPressed = s_orig_Device_IsActionPressed(device, action);
+    } else {
+        isPressed = rawTriggered;
+    }
+
+    DropDebounceState &st = s_dropStates[device];
+    uint64_t now = mach_absolute_time();
+
+    static mach_timebase_info_data_t tb;
+    if (tb.denom == 0) {
+        mach_timebase_info(&tb);
+    }
+    // 100ms debounce interval between distinct triggers
+    uint64_t minIntervalTicks = (100ULL * 1000000ULL * tb.denom) / tb.numer;
+
+    bool result = false;
+    if (rawTriggered && !st.wasPressed && (now - st.lastTriggerTime >= minIntervalTicks)) {
+        // True initial rising edge of the press/tap
+        result = true;
+        st.lastTriggerTime = now;
+    } else {
+        // Repeated frame or held down: suppress repeat triggers
+        result = false;
+    }
+
+    st.wasPressed = isPressed;
+    return result;
+}
+
+static void InstallDropDebounceFix(intptr_t slide) {
+    static BOOL s_installed = NO;
+    if (s_installed) return;
+    s_installed = YES;
+
+    s_orig_Device_IsActionTriggered = reinterpret_cast<Device_IsActionTriggered_t>(0x1008a8098 + slide);
+    s_orig_Device_IsActionPressed   = reinterpret_cast<Device_IsActionPressed_t>(0x1008a7fec + slide);
+
+    const uintptr_t vtableSlots[] = {
+        static_cast<uintptr_t>(0x100a918b0 + slide), // InputDeviceBase::vtable[10]
+        static_cast<uintptr_t>(0x100a91a60 + slide), // DeviceGamepad::vtable[10]
+        static_cast<uintptr_t>(0x100a92dd8 + slide), // DeviceiOS::vtable[10]
+        static_cast<uintptr_t>(0x100a949a8 + slide), // DeviceKeyboard::vtable[10]
+    };
+
+    void *hookPtr = reinterpret_cast<void *>(&Hook_Device_IsActionTriggered);
+    int patchedCount = 0;
+
+    for (uintptr_t slotAddr : vtableSlots) {
+        uintptr_t currentVal = 0;
+        if (ReadOwnTaskMemory(slotAddr, &currentVal, sizeof(currentVal))) {
+            if (currentVal == static_cast<uintptr_t>(0x1008a8098 + slide) ||
+                currentVal == reinterpret_cast<uintptr_t>(hookPtr)) {
+                if (currentVal != reinterpret_cast<uintptr_t>(hookPtr)) {
+                    if (WriteOwnTaskMemory(slotAddr, &hookPtr, sizeof(hookPtr))) {
+                        patchedCount++;
+                    }
+                } else {
+                    patchedCount++;
+                }
+            }
+        }
+    }
+
+    EIDLog(@"[DROP_FIX] Action 11 (RT / Drop) debounce hook installed in %d/%zu vtables",
+           patchedCount, sizeof(vtableSlots) / sizeof(vtableSlots[0]));
+}
+
 @implementation EIDNativeProbe
 - (instancetype)init {
     self = [super init];
@@ -1282,7 +1404,9 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
                    (unsigned long)self.scanContext.slotVTableCount,
                    (unsigned long)self.scanContext.effectVTableCount,
                    (unsigned long)self.scanContext.gridSpikesVTableCount];
-    const mach_header_64 *isaacHeader = IsaacExecutableHeader(nullptr);
+    intptr_t slide = 0;
+    const mach_header_64 *isaacHeader = IsaacExecutableHeader(&slide);
+    InstallDropDebounceFix(slide);
     NSString *imageMode = isaacHeader && isaacHeader->filetype == MH_DYLIB
         ? @"LiveContainer guest dylib" : @"native executable";
     EIDLog(@"%@; executable UUID %@; image mode %@", self.status,
