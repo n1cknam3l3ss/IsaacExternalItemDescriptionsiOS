@@ -1,3 +1,5 @@
+# Go praise emp0ry for making this! my lazy ass just asking antigravity to improve this mod further.
+
 # Isaac External Item Descriptions for iOS
 
 The first publicly released native gameplay mod for **The Binding of Isaac: Repentance on iOS**. It brings External Item Descriptions-style information to the native iOS game without relying on Isaac's desktop Lua mod API.
