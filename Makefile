@@ -3,6 +3,8 @@ SHELL := /bin/zsh
 PROJECT_ROOT := $(CURDIR)
 SDK := $(shell xcrun --sdk iphoneos --show-sdk-path)
 CLANG := $(shell xcrun --sdk iphoneos --find clang)
+HOST_SDK := $(shell xcrun --sdk macosx --show-sdk-path)
+HOST_CLANGXX := $(shell xcrun --sdk macosx --find clang++)
 MIN_IOS ?= 15.0
 EXTRA_CFLAGS ?=
 DEBUG_BUILD ?= 0
@@ -107,6 +109,11 @@ audit: dylib
 	@if nm -u "$(DYLIB)" | rg -i 'substrate|ellekit|libhooker|/var/jb'; then echo "ERROR: jailbreak-only dependency detected"; exit 1; else echo "Portable dependency audit passed"; fi
 
 test:
+	mkdir -p "$(PROJECT_ROOT)/build"
+	"$(HOST_CLANGXX)" -isysroot "$(HOST_SDK)" -std=c++17 -Wall -Wextra -Werror -I"$(PROJECT_ROOT)/include" \
+		"$(PROJECT_ROOT)/tests/test_pickup_policy.cpp" -o "$(PROJECT_ROOT)/build/test_pickup_policy"
+	"$(PROJECT_ROOT)/build/test_pickup_policy"
+	python3 "$(PROJECT_ROOT)/tests/test_overlay_architecture.py"
 	python3 "$(PROJECT_ROOT)/tests/test_import_eid.py"
 	python3 "$(PROJECT_ROOT)/tests/test_bundled_descriptions.py"
 	python3 -m py_compile "$(PROJECT_ROOT)/tools/import-eid.py" "$(PROJECT_ROOT)/tools/import-eid-assets.py" "$(PROJECT_ROOT)/tools/macho-add-dylib.py"

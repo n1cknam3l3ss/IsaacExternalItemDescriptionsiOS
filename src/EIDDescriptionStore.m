@@ -43,6 +43,21 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
                                 detail:(NSString *)detail
                               iconPath:(NSString *)iconPath
                                quality:(NSInteger)quality {
+    return [self initWithPickupVariant:pickupVariant subtype:subtype name:name detail:detail
+                              iconPath:iconPath quality:quality
+                              itemType:EIDCollectibleItemTypeUnknown maxCharges:0
+                            chargeType:EIDActiveChargeTypeNormal];
+}
+
+- (instancetype)initWithPickupVariant:(NSInteger)pickupVariant
+                               subtype:(NSInteger)subtype
+                                  name:(NSString *)name
+                                detail:(NSString *)detail
+                              iconPath:(NSString *)iconPath
+                               quality:(NSInteger)quality
+                              itemType:(EIDCollectibleItemType)itemType
+                            maxCharges:(NSInteger)maxCharges
+                            chargeType:(EIDActiveChargeType)chargeType {
     self = [super init];
     if (self) {
         _pickupVariant = pickupVariant;
@@ -52,6 +67,9 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
         _detail = [detail copy];
         _iconPath = [iconPath copy];
         _quality = quality;
+        _itemType = itemType;
+        _maxCharges = MAX(0, maxCharges);
+        _chargeType = chargeType;
     }
     return self;
 }
@@ -109,9 +127,29 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
             }
         }
     }
+    EIDCollectibleItemType itemType = EIDCollectibleItemTypeUnknown;
+    if ([elementName isEqualToString:@"active"]) itemType = EIDCollectibleItemTypeActive;
+    else if ([elementName isEqualToString:@"passive"]) itemType = EIDCollectibleItemTypePassive;
+    else if ([elementName isEqualToString:@"familiar"]) itemType = EIDCollectibleItemTypeFamiliar;
+
+    NSInteger maxCharges = itemType == EIDCollectibleItemTypeActive
+        ? MAX(0, attributes[@"maxcharges"].integerValue) : 0;
+    EIDActiveChargeType chargeType = EIDActiveChargeTypeNormal;
+    NSString *chargeName = attributes[@"chargetype"].lowercaseString;
+    if ([chargeName isEqualToString:@"timed"]) chargeType = EIDActiveChargeTypeTimed;
+    else if ([chargeName isEqualToString:@"special"]) chargeType = EIDActiveChargeTypeSpecial;
+
+    // Upstream EID marks these variable-charge actives as special even though
+    // their XML entries expose the currently selected form's ordinary charge.
+    if (itemType == EIDCollectibleItemTypeActive &&
+        (itemID == 263 || itemID == 286 || itemID == 348 || itemID == 489)) {
+        chargeType = EIDActiveChargeTypeSpecial;
+    }
+
     self.items[EIDDescriptionKey(variant, itemID)] =
         [[EIDDescription alloc] initWithPickupVariant:variant subtype:itemID
-                                                 name:name detail:detail iconPath:iconPath quality:quality];
+                                                 name:name detail:detail iconPath:iconPath quality:quality
+                                             itemType:itemType maxCharges:maxCharges chargeType:chargeType];
 }
 @end
 
@@ -145,9 +183,33 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 @property(nonatomic, copy) NSString *languageCode;
 @property(nonatomic, copy) NSArray<NSString *> *availableLanguageCodes;
 @property(nonatomic, copy) NSString *descriptionDataSet;
+@property(nonatomic, copy) NSString *unidentifiedPillName;
 @end
 
 @implementation EIDDescriptionStore
+
+static NSString *EIDUnidentifiedPillName(NSString *languageCode) {
+    static NSDictionary<NSString *, NSString *> *names;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        // Keep this tiny UI string in code as well as descriptions.json. Older
+        // app-support databases take precedence so users can import their own EID
+        // data; they must not force the title back to English after a language change.
+        names = @{
+            @"bul": @"Неидентифицирано хапче", @"cs_cz": @"Neznámá Pilulka",
+            @"de": @"Unidentifizierte Pille", @"el_gr": @"Άγνωστο Χάπι",
+            @"en_us": @"Unidentified Pill", @"spa": @"Píldora sin identificar",
+            @"fr": @"Pilule non identifiée", @"it": @"Pillola non identificata",
+            @"ja_jp": @"未識別のピル", @"ko_kr": @"확인하지 않은 알약",
+            @"nl_nl": @"Unidentified Pill", @"pl": @"Nieznana Pigułka",
+            @"pt": @"Comprimido não identificado", @"pt_br": @"Pílula não identificada",
+            @"ro_ro": @"Unidentified Pill", @"ru": @"Неизвестная пилюля",
+            @"tr_tr": @"Tanımlanmamış Hap", @"uk_ua": @"Невідома пігулка",
+            @"vi": @"Viên thuốc không xác định", @"zh_cn": @"未识别的胶囊",
+        };
+    });
+    return names[languageCode] ?: names[@"en_us"];
+}
 
 - (instancetype)init {
     self = [super init];
@@ -158,6 +220,7 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
         _languageCode = [self resolvedLanguageCode];
         _availableLanguageCodes = @[@"en_us"];
         _descriptionDataSet = @"Isaac metadata";
+        _unidentifiedPillName = EIDUnidentifiedPillName(_languageCode);
         [self reload];
     }
     return self;
@@ -198,6 +261,11 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
 
 - (EIDDescription *)descriptionForPickupVariant:(NSInteger)variant subtype:(NSInteger)subtype {
     if (variant == EIDPickupVariantTrinket) subtype &= 0x7fff;
+    if (variant == EIDPickupVariantUnidentifiedPill) {
+        return [[EIDDescription alloc] initWithPickupVariant:variant subtype:subtype
+            name:self.unidentifiedPillName.length ? self.unidentifiedPillName : @"Unidentified Pill"
+            detail:@"?" iconPath:nil quality:-1];
+    }
     return self.items[EIDDescriptionKey(variant, subtype)];
 }
 
@@ -296,9 +364,21 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
             EIDDescription *existing = self.items[key];
             if (!existing) return;
             self.items[key] = [[EIDDescription alloc] initWithPickupVariant:existing.pickupVariant subtype:existing.pickupSubtype
-                name:existing.name detail:existing.detail iconPath:existing.iconPath quality:quality.integerValue];
+                name:existing.name detail:existing.detail iconPath:existing.iconPath quality:quality.integerValue
+                itemType:existing.itemType maxCharges:existing.maxCharges chargeType:existing.chargeType];
         }];
     }
+
+    __block NSUInteger activeCount = 0, timedCount = 0, specialCount = 0;
+    [self.items enumerateKeysAndObjectsUsingBlock:^(__unused NSString *key, EIDDescription *item,
+                                                     __unused BOOL *stop) {
+        if (item.itemType != EIDCollectibleItemTypeActive) return;
+        activeCount++;
+        if (item.chargeType == EIDActiveChargeTypeTimed) timedCount++;
+        else if (item.chargeType == EIDActiveChargeTypeSpecial) specialCount++;
+    }];
+    EIDLog(@"item metadata loaded: %lu active (%lu timed, %lu special)",
+           (unsigned long)activeCount, (unsigned long)timedCount, (unsigned long)specialCount);
 }
 
 - (NSArray<NSString *> *)importedDescriptionPaths {
@@ -342,6 +422,17 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
     self.descriptionDataSet = [NSString stringWithFormat:@"Repentance %@ (%@)", compatibleVersion, gameVersion];
     NSDictionary *language = [languages[self.languageCode] isKindOfClass:NSDictionary.class] ? languages[self.languageCode] : nil;
     NSDictionary *english = [languages[@"en_us"] isKindOfClass:NSDictionary.class] ? languages[@"en_us"] : nil;
+    NSDictionary *languageStrings = [language[@"strings"] isKindOfClass:NSDictionary.class]
+        ? language[@"strings"] : nil;
+    NSDictionary *englishStrings = [english[@"strings"] isKindOfClass:NSDictionary.class]
+        ? english[@"strings"] : nil;
+    NSString *unidentifiedPill = [languageStrings[@"unidentified_pill"] isKindOfClass:NSString.class]
+        ? languageStrings[@"unidentified_pill"] : nil;
+    if (!unidentifiedPill.length) unidentifiedPill = EIDUnidentifiedPillName(self.languageCode);
+    if (!unidentifiedPill.length && [englishStrings[@"unidentified_pill"] isKindOfClass:NSString.class]) {
+        unidentifiedPill = englishStrings[@"unidentified_pill"];
+    }
+    self.unidentifiedPillName = unidentifiedPill.length ? unidentifiedPill : @"Unidentified Pill";
     NSDictionary<NSString *, NSNumber *> *categories = @{
         @"collectibles": @(EIDPickupVariantCollectible),
         @"trinkets": @(EIDPickupVariantTrinket),
@@ -365,7 +456,11 @@ static NSString *EIDDescriptionKey(NSInteger variant, NSInteger subtype) {
             if (subtype <= 0 || (!name.length && !detail.length)) return;
             NSString *descriptionKey = EIDDescriptionKey(variant, subtype);
             EIDDescription *existing = self.items[descriptionKey];
-            self.items[descriptionKey] = [[EIDDescription alloc] initWithPickupVariant:variant subtype:subtype name:name detail:detail iconPath:existing.iconPath quality:existing ? existing.quality : -1];
+            self.items[descriptionKey] = [[EIDDescription alloc] initWithPickupVariant:variant subtype:subtype
+                name:name detail:detail iconPath:existing.iconPath quality:existing ? existing.quality : -1
+                itemType:existing ? existing.itemType : EIDCollectibleItemTypeUnknown
+                maxCharges:existing ? existing.maxCharges : 0
+                chargeType:existing ? existing.chargeType : EIDActiveChargeTypeNormal];
         }];
     }];
     if ([english[@"car_battery"] isKindOfClass:NSDictionary.class]) {

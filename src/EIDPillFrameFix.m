@@ -11,6 +11,8 @@ static const uintptr_t kEIDPillGameGlobalOffset = 0xac3b90;
 static const size_t kEIDPillGameItemPoolOffset = 0x242c0;
 static const size_t kEIDPillEffectsOffset = 0xa2c;
 static const NSInteger kEIDGoldenPillColor = 14;
+static const uint32_t kEIDPillColorMask = 0x7ff;
+static const uint32_t kEIDHorsePillFlag = 1u << 11;
 
 static BOOL EIDPillReadMemory(vm_address_t address, void *destination, vm_size_t size) {
     if (!address || !destination || !size) return NO;
@@ -136,6 +138,7 @@ static UIImage *EIDPillCropImage(UIImage *atlas, id frameValue) {
 @property(nonatomic, strong) NSMutableDictionary<NSString *, id> *cache;
 + (instancetype)shared;
 - (UIImage *)imageForEffectSubtype:(NSInteger)subtype horse:(BOOL)horse;
+- (UIImage *)imageForColor:(NSInteger)color horse:(BOOL)horse;
 @end
 
 @implementation EIDOriginalPillArtwork
@@ -183,6 +186,9 @@ static UIImage *EIDPillCropImage(UIImage *atlas, id frameValue) {
 }
 - (UIImage *)imageForEffectSubtype:(NSInteger)subtype horse:(BOOL)horse {
     NSInteger color = [self colorForEffectSubtype:subtype];
+    return [self imageForColor:color horse:horse];
+}
+- (UIImage *)imageForColor:(NSInteger)color horse:(BOOL)horse {
     if (color <= 0) return nil;
     NSString *key = [NSString stringWithFormat:@"%ld:%d", (long)color, horse];
     id cached = self.cache[key];
@@ -208,6 +214,12 @@ static UIImage *EIDPillCropImage(UIImage *atlas, id frameValue) {
 
 @implementation NSObject (EIDPillFrameFix)
 - (UIImage *)eid_original_pill_pocketIconForVariant:(NSInteger)variant subtype:(NSInteger)subtype {
+    if (variant == EIDPickupVariantUnidentifiedPill) {
+        uint32_t rawColor = (uint32_t)subtype;
+        return [[EIDOriginalPillArtwork shared]
+            imageForColor:(rawColor & kEIDPillColorMask)
+                     horse:(rawColor & kEIDHorsePillFlag) != 0];
+    }
     if (variant == EIDPickupVariantPill || variant == EIDPickupVariantHorsePill) {
         UIImage *image = [[EIDOriginalPillArtwork shared] imageForEffectSubtype:subtype
                                                                          horse:(variant == EIDPickupVariantHorsePill)];

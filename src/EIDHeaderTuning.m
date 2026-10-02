@@ -6,6 +6,22 @@
 static const void *EIDHeaderLabelKey = &EIDHeaderLabelKey;
 static const void *EIDHeaderLogoKey = &EIDHeaderLogoKey;
 
+static UIImage *EIDHeaderCrispRaster(UIImage *image, CGSize pointSize) {
+    if (!image || pointSize.width <= 0 || pointSize.height <= 0) return image;
+    CGFloat screenScale = UIScreen.mainScreen.scale;
+    if (screenScale < 1) screenScale = 1;
+    UIGraphicsBeginImageContextWithOptions(pointSize, NO, screenScale);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextSetInterpolationQuality(context, kCGInterpolationNone);
+    CGContextSetShouldAntialias(context, false);
+    [image drawInRect:(CGRect){CGPointZero, pointSize}
+            blendMode:kCGBlendModeNormal
+                alpha:1];
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result ?: image;
+}
+
 static UIImage *EIDTrimTransparentPadding(UIImage *image) {
     CGImageRef cg = image.CGImage;
     if (!cg) return image;
@@ -58,8 +74,8 @@ static UILabel *EIDHeaderLabelForController(id controller, UIView *panel) {
     header = [[UILabel alloc] initWithFrame:CGRectZero];
     header.numberOfLines = 1;
     header.backgroundColor = UIColor.clearColor;
-    header.adjustsFontSizeToFitWidth = YES;
-    header.minimumScaleFactor = 0.45;
+    header.adjustsFontSizeToFitWidth = NO;
+    header.minimumScaleFactor = 1.0;
     header.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
     header.lineBreakMode = NSLineBreakByClipping;
     header.userInteractionEnabled = NO;
@@ -129,7 +145,8 @@ static UIImageView *EIDHeaderLogoForController(id controller, UIView *panel) {
                           inRange:NSMakeRange(0, headerText.length)
                           options:0
                        usingBlock:^(NSTextAttachment *attachment, NSRange range, BOOL *stop) {
-        if ([attachment isKindOfClass:NSTextAttachment.class]) {
+        if ([attachment isKindOfClass:NSTextAttachment.class] && range.location == 0 &&
+            !objc_getAssociatedObject(attachment, NSSelectorFromString(@"eid_preserveOriginalAttachmentSize"))) {
             itemAttachment = attachment;
             itemAttachmentRange = range;
             *stop = YES;
@@ -163,9 +180,11 @@ static UIImageView *EIDHeaderLogoForController(id controller, UIView *panel) {
                        usingBlock:^(NSTextAttachment *attachment, NSRange range, BOOL *stop) {
         (void)range; (void)stop;
         if (![attachment isKindOfClass:NSTextAttachment.class]) return;
+        if (objc_getAssociatedObject(attachment, NSSelectorFromString(@"eid_preserveOriginalAttachmentSize"))) return;
         UIImage *quality = attachment.image;
         CGFloat h = 12.0 * scale;
         CGFloat ratio = quality.size.height > 0 ? quality.size.width / quality.size.height : 1.0;
+        attachment.image = EIDHeaderCrispRaster(quality, CGSizeMake(h * ratio, h));
         attachment.bounds = CGRectMake(0, -1.8 * scale, h * ratio, h);
     }];
 
@@ -174,6 +193,20 @@ static UIImageView *EIDHeaderLogoForController(id controller, UIView *panel) {
     headerLabel.attributedText = headerText;
 
     CGFloat gap = 5.0 * scale;
+    UIView *rootView = [self valueForKey:@"rootView"];
+    CGFloat availableWidth = [rootView isKindOfClass:UIView.class]
+        ? MAX(panel.bounds.size.width, rootView.bounds.size.width - panel.frame.origin.x - 14.0)
+        : panel.bounds.size.width;
+    CGRect measuredHeader = [headerText boundingRectWithSize:CGSizeMake(CGFLOAT_MAX, 22.0 * scale)
+                                                    options:NSStringDrawingUsesLineFragmentOrigin |
+                                                            NSStringDrawingUsesFontLeading
+                                                    context:nil];
+    CGFloat desiredWidth = ceil(measuredHeader.size.width) + textInset + 2.0 * scale;
+    if (desiredWidth > panel.bounds.size.width) {
+        CGRect widened = panel.frame;
+        widened.size.width = MIN(availableWidth, desiredWidth);
+        panel.frame = widened;
+    }
     CGFloat textWidth = MAX(1, panel.bounds.size.width - textInset);
     CGFloat headerHeight = 22.0 * scale;
     headerLabel.frame = CGRectMake(textInset, 0, textWidth, headerHeight);
@@ -185,14 +218,17 @@ static UIImageView *EIDHeaderLogoForController(id controller, UIView *panel) {
         bodyLabel.attributedText = nil;
     }
 
-    CGSize bodySize = [bodyLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)];
+    BOOL hasBody = bodyLabel.attributedText.length > 0;
+    CGSize bodySize = hasBody
+        ? [bodyLabel sizeThatFits:CGSizeMake(textWidth, CGFLOAT_MAX)] : CGSizeZero;
     CGRect panelFrame = panel.frame;
-    panelFrame.size.height = headerHeight + gap + MAX(1, ceil(bodySize.height));
+    panelFrame.size.height = headerHeight + (hasBody ? gap + ceil(bodySize.height) : 0);
     panel.frame = panelFrame;
 
     logo.frame = CGRectMake(0, logoYOffset, logoSize, logoSize);
     headerLabel.frame = CGRectMake(textInset, 0, textWidth, headerHeight);
-    bodyLabel.frame = CGRectMake(textInset, headerHeight + gap, textWidth, MAX(1, ceil(bodySize.height)));
+    bodyLabel.frame = CGRectMake(textInset, headerHeight + (hasBody ? gap : 0),
+                                 textWidth, hasBody ? ceil(bodySize.height) : 0);
 }
 @end
 

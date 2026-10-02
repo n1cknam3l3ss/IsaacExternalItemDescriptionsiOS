@@ -299,23 +299,29 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 }
 
 - (UIWindow *)gameWindow {
+    UIWindow *fallback = nil;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (!window.hidden && window.alpha > 0 && window.windowLevel == UIWindowLevelNormal) return window;
+            if (window.hidden || window.alpha <= 0 || window.windowLevel != UIWindowLevelNormal) continue;
+            if (window.isKeyWindow) return window;
+            if (!fallback) fallback = window;
         }
     }
-    return nil;
+    return fallback;
 }
 
 - (void)attachOverlayIfNeeded {
     UIWindow *window = [self gameWindow];
     if (!window) return;
+    if (CGRectIsEmpty(window.bounds)) return;
     if (self.rootView.superview == window) return;
     [self.rootView removeFromSuperview];
 
     EIDPassthroughView *root = [[EIDPassthroughView alloc] initWithFrame:window.bounds];
     root.backgroundColor = UIColor.clearColor;
+    // The root only claims touches that land on EID controls. Its hit-test
+    // implementation returns nil everywhere else, preserving Isaac's game input.
     root.userInteractionEnabled = YES;
     root.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
@@ -1005,6 +1011,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     if (variant == EIDPickupVariantCard) return russian ? @"Карта / руна" : @"Card / rune";
     if (variant == EIDPickupVariantPill) return russian ? @"Таблетка" : @"Pill";
     if (variant == EIDPickupVariantHorsePill) return russian ? @"Большая таблетка" : @"Horse pill";
+    if (variant == EIDPickupVariantUnidentifiedPill) return russian ? @"Неизвестная пилюля" : @"Unidentified pill";
     if (variant == EIDPickupVariantDiceRoom) return russian ? @"Комната игральной кости" : @"Dice Room";
     if (variant == EIDPickupVariantSacrificeRoom) return russian ? @"Комната жертвоприношений" : @"Sacrifice Room";
     return russian ? @"Артефакт" : @"Collectible";
@@ -1049,7 +1056,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 
 - (UIImage *)pocketIconForVariant:(NSInteger)variant subtype:(NSInteger)subtype {
     if (variant != EIDPickupVariantCard && variant != EIDPickupVariantPill &&
-        variant != EIDPickupVariantHorsePill) return nil;
+        variant != EIDPickupVariantHorsePill &&
+        variant != EIDPickupVariantUnidentifiedPill) return nil;
     NSString *key = [NSString stringWithFormat:@"%ld:%ld", (long)variant, (long)subtype];
     id cached = self.pocketIconCache[key];
     if (cached) return cached == NSNull.null ? nil : cached;

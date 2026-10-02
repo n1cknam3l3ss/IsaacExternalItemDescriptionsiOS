@@ -269,6 +269,14 @@ def main() -> int:
         categories["tarot_cloth"] = tc_entries
         category_counts.append(f"car_battery={len(cb_entries)}")
         category_counts.append(f"tarot_cloth={len(tc_entries)}")
+        unidentified_pill = None
+        for path in files:
+            unidentified_pill = (
+                parse_string_assignment(path, "unidentifiedPill") or unidentified_pill
+            )
+        categories["strings"] = {
+            "unidentified_pill": unidentified_pill or "Unidentified Pill"
+        }
         languages[code] = categories
         counts.append(f"{code}({', '.join(category_counts)})")
     payload = {
