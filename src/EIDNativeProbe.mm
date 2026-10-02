@@ -207,7 +207,7 @@ constexpr size_t kEntitySpriteLayerStatesOffset = 0xf8;
 constexpr size_t kEntitySpriteLayerCountOffset = 0x100;
 constexpr size_t kGridEntityDescOffset = 0x8;
 constexpr size_t kGridEntityVarDataOffset = kGridEntityDescOffset + 0x14;
-constexpr size_t kPickupTouchedOffset = 0x560;
+[[maybe_unused]] constexpr size_t kPickupTouchedOffset = 0x560;
 constexpr size_t kPickupForceBlindOffset = 0x562;
 constexpr size_t kPickupPriceOffset = 0x564;
 // Live-verified on the supported iOS build: an ordinary floor card has 0 here,
