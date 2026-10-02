@@ -102,10 +102,75 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 }
 @end
 
+@interface EIDMomsHandVignetteView : UIView
+@end
+
+@implementation EIDMomsHandVignetteView
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.userInteractionEnabled = NO;
+        self.backgroundColor = [UIColor clearColor];
+        self.alpha = 0.0;
+        self.contentMode = UIViewContentModeRedraw;
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    }
+    return self;
+}
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (!ctx) return;
+
+    CGFloat width = rect.size.width;
+    CGFloat height = rect.size.height;
+    if (width <= 0 || height <= 0) return;
+
+    CGFloat glowSize = 75.0;
+
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGFloat colors[] = {
+        1.0, 1.0, 1.0, 0.85,
+        1.0, 1.0, 1.0, 0.35,
+        1.0, 1.0, 1.0, 0.00
+    };
+    CGFloat locations[] = { 0.0, 0.45, 1.0 };
+    CGGradientRef gradient = CGGradientCreateWithColorComponents(colorSpace, colors, locations, 3);
+
+    // Top
+    CGContextSaveGState(ctx);
+    CGContextClipToRect(ctx, CGRectMake(0, 0, width, glowSize));
+    CGContextDrawLinearGradient(ctx, gradient, CGPointMake(0, 0), CGPointMake(0, glowSize), 0);
+    CGContextRestoreGState(ctx);
+
+    // Bottom
+    CGContextSaveGState(ctx);
+    CGContextClipToRect(ctx, CGRectMake(0, height - glowSize, width, glowSize));
+    CGContextDrawLinearGradient(ctx, gradient, CGPointMake(0, height), CGPointMake(0, height - glowSize), 0);
+    CGContextRestoreGState(ctx);
+
+    // Left
+    CGContextSaveGState(ctx);
+    CGContextClipToRect(ctx, CGRectMake(0, 0, glowSize, height));
+    CGContextDrawLinearGradient(ctx, gradient, CGPointMake(0, 0), CGPointMake(glowSize, 0), 0);
+    CGContextRestoreGState(ctx);
+
+    // Right
+    CGContextSaveGState(ctx);
+    CGContextClipToRect(ctx, CGRectMake(width - glowSize, 0, glowSize, height));
+    CGContextDrawLinearGradient(ctx, gradient, CGPointMake(width, 0), CGPointMake(width - glowSize, 0), 0);
+    CGContextRestoreGState(ctx);
+
+    CGGradientRelease(gradient);
+    CGColorSpaceRelease(colorSpace);
+}
+@end
+
 @interface EIDOverlayController ()
 @property(nonatomic, strong) EIDDescriptionStore *store;
 @property(nonatomic, strong) EIDNativeProbe *probe;
 @property(nonatomic, strong) EIDPassthroughView *rootView;
+@property(nonatomic, strong) EIDMomsHandVignetteView *momsHandVignette;
 @property(nonatomic, strong) UIView *panel;
 @property(nonatomic, strong) UIImageView *itemIconView;
 @property(nonatomic, strong) UILabel *label;
@@ -137,6 +202,14 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 @property(nonatomic, copy) NSString *inventorySignature;
 @property(nonatomic, copy) NSString *transformationProgressSignature;
 @property(nonatomic) BOOL pauseUIActive;
+@property(nonatomic) BOOL lastMomsHandPresent;
+@property(nonatomic) BOOL snapshotActive;
+@property(nonatomic) BOOL snapshotHadShield;
+@property(nonatomic) float snapshotDamage;
+@property(nonatomic) float snapshotSpeed;
+@property(nonatomic) float snapshotFireDelay;
+@property(nonatomic) uint32_t snapshotRunSeed;
+@property(nonatomic) NSUInteger snapshotRunCounter;
 #if EID_DEBUG_MENU
 @property(nonatomic, strong) UIButton *debugButton;
 @property(nonatomic, strong) UIView *debugCard;
@@ -183,7 +256,46 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
                                                    selector:@selector(tick:)
                                                    userInfo:nil
                                                     repeats:YES];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleWillResignActive)
+                                                     name:UIApplicationWillResignActiveNotification
+                                                   object:nil];
     });
+}
+
+- (void)handleWillResignActive {
+    if (!self.probe.isGameplayActive) return;
+    EIDPlayerStats *stats = self.probe.primaryPlayerStats;
+    if (!stats) return;
+
+    self.snapshotHadShield = [self.probe hasHolyShield];
+    self.snapshotDamage = stats.damage;
+    self.snapshotSpeed = stats.moveSpeed;
+    self.snapshotFireDelay = stats.maxFireDelay;
+    self.snapshotRunSeed = self.probe.runSeed;
+    self.snapshotRunCounter = self.probe.runCounter;
+    self.snapshotActive = YES;
+
+    EIDLog(@"[RESUME_FIX] Snapshot before suspend: shield=%d damage=%.2f speed=%.2f seed=%08x counter=%lu",
+           self.snapshotHadShield, self.snapshotDamage, self.snapshotSpeed,
+           self.snapshotRunSeed, (unsigned long)self.snapshotRunCounter);
+}
+
+- (void)triggerMomsHandPulse {
+    if (!self.momsHandVignette) return;
+    if (self.momsHandVignette.alpha > 0.05) return; // already active
+
+    [self.momsHandVignette setNeedsDisplay];
+    [UIView animateWithDuration:0.4 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
+        self.momsHandVignette.alpha = 1.0;
+    } completion:^(BOOL finished) {
+        if (finished) {
+            [UIView animateWithDuration:0.9 delay:0.1 options:UIViewAnimationOptionCurveEaseOut animations:^{
+                self.momsHandVignette.alpha = 0.0;
+            } completion:nil];
+        }
+    }];
+    EIDLog(@"[MOM'S HAND] Triggered white edge pulse indicator!");
 }
 
 - (UIWindow *)gameWindow {
@@ -206,6 +318,9 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     root.backgroundColor = UIColor.clearColor;
     root.userInteractionEnabled = YES;
     root.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+    EIDMomsHandVignetteView *vignette = [[EIDMomsHandVignetteView alloc] initWithFrame:root.bounds];
+    [root addSubview:vignette];
 
     CGFloat leftMargin = [self overlayLeftMargin];
     UIView *panel = [[UIView alloc] initWithFrame:CGRectZero];
@@ -459,6 +574,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 #endif
     [window addSubview:root];
     self.rootView = root;
+    self.momsHandVignette = vignette;
     self.panel = panel;
     self.itemIconView = itemIcon;
     self.label = label;
@@ -493,6 +609,30 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
             BOOL paused = self.probe.gameplayActive && self.probe.pauseStateAvailable &&
                 self.probe.paused;
             [self updatePauseInventoryForPaused:paused];
+
+            if (self.probe.isMomsHandPresent && !self.lastMomsHandPresent) {
+                [self triggerMomsHandPulse];
+            }
+            self.lastMomsHandPresent = self.probe.isMomsHandPresent;
+
+            if (self.snapshotActive && self.probe.gameplayActive && !paused) {
+                if (self.probe.runCounter == self.snapshotRunCounter && self.probe.runSeed == self.snapshotRunSeed) {
+                    if (self.snapshotHadShield && ![self.probe hasHolyShield]) {
+                        [self.probe restoreHolyShield];
+                    }
+                    EIDPlayerStats *currentStats = self.probe.primaryPlayerStats;
+                    if (currentStats && self.snapshotDamage > currentStats.damage + 0.05f) {
+                        [self.probe setPlayerDamage:self.snapshotDamage];
+                    }
+                    if (currentStats && self.snapshotSpeed > currentStats.moveSpeed + 0.05f) {
+                        [self.probe setPlayerMoveSpeed:self.snapshotSpeed];
+                    }
+                    if (currentStats && self.snapshotFireDelay < currentStats.maxFireDelay - 0.05f && self.snapshotFireDelay > 0.5f) {
+                        [self.probe setPlayerMaxFireDelay:self.snapshotFireDelay];
+                    }
+                }
+                self.snapshotActive = NO;
+            }
             NSString *progressSignature = [[EIDTransformationProgress shared]
                 progressSignatureForPickups:pickups];
             BOOL progressChanged = ![progressSignature

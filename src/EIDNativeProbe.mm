@@ -25,6 +25,7 @@ constexpr const char *kFamiliarRTTIName = "N15IsaacRepentance15Entity_FamiliarE"
 constexpr const char *kSlotRTTIName = "N15IsaacRepentance11Entity_SlotE";
 constexpr const char *kEffectRTTIName = "N15IsaacRepentance13Entity_EffectE";
 constexpr const char *kGridSpikesRTTIName = "N15IsaacRepentance17GridEntity_SpikesE";
+constexpr const char *kNPCRTTIName = "N15IsaacRepentance10Entity_NPCE";
 constexpr const char *kSupportedUUID = "F4357753-A25F-30EE-BACF-63709F902895";
 constexpr size_t kMaxVTables = 8;
 constexpr size_t kMaxItems = 32;
@@ -43,6 +44,8 @@ struct ScanContext {
     size_t effectVTableCount = 0;
     std::array<uintptr_t, kMaxVTables> gridSpikesVTables{};
     size_t gridSpikesVTableCount = 0;
+    std::array<uintptr_t, kMaxVTables> npcVTables{};
+    size_t npcVTableCount = 0;
 };
 
 static bool IsCandidateVTable(const std::array<uintptr_t, kMaxVTables>& vtables,
@@ -189,6 +192,7 @@ static ScanContext LocateEntityVTables(void) {
     LocateVTables(kEffectRTTIName, context.effectVTables, context.effectVTableCount);
     LocateVTables(kGridSpikesRTTIName, context.gridSpikesVTables,
                   context.gridSpikesVTableCount);
+    LocateVTables(kNPCRTTIName, context.npcVTables, context.npcVTableCount);
     return context;
 }
 
@@ -291,6 +295,7 @@ struct VMRegionResult {
     size_t slotVTableReferences = 0;
     size_t effectVTableReferences = 0;
     size_t gridSpikesVTableReferences = 0;
+    size_t npcVTableReferences = 0;
     vm_address_t firstPickupVTableAddress = 0;
     vm_address_t lastPickupVTableAddress = 0;
     vm_address_t firstSlotVTableAddress = 0;
@@ -299,7 +304,10 @@ struct VMRegionResult {
     vm_address_t lastEffectVTableAddress = 0;
     vm_address_t firstFamiliarVTableAddress = 0;
     vm_address_t lastFamiliarVTableAddress = 0;
+    vm_address_t firstNpcVTableAddress = 0;
+    vm_address_t lastNpcVTableAddress = 0;
     bool superBumActive = false;
+    bool momsHandPresent = false;
     std::array<VMPickup, kMaxItems> pickups{};
     size_t pickupCount = 0;
     std::array<VMCardObservation, kMaxItems> cardObservations{};
@@ -878,8 +886,9 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
                                                 context.familiarVTableCount, vtable);
         bool slotVTable = IsCandidateVTable(context.slotVTables, context.slotVTableCount, vtable);
         bool effectVTable = IsCandidateVTable(context.effectVTables, context.effectVTableCount, vtable);
+        bool npcVTable = IsCandidateVTable(context.npcVTables, context.npcVTableCount, vtable);
         if (!pickupVTable && !playerVTable && !familiarVTable &&
-            !slotVTable && !effectVTable) continue;
+            !slotVTable && !effectVTable && !npcVTable) continue;
 
         int32_t identity[3];
         memcpy(identity, bytes + offset + kEntityTypeOffset, sizeof(identity));
@@ -1002,6 +1011,19 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
                             x, y, positionAvailable);
             }
         }
+        if (npcVTable) {
+            result.npcVTableReferences++;
+            vm_address_t referenceAddress = sourceAddress + offset;
+            if (!result.firstNpcVTableAddress || referenceAddress < result.firstNpcVTableAddress) {
+                result.firstNpcVTableAddress = referenceAddress;
+            }
+            if (referenceAddress > result.lastNpcVTableAddress) {
+                result.lastNpcVTableAddress = referenceAddress;
+            }
+            if (activeObject && (identity[0] == 213 || identity[0] == 214)) {
+                result.momsHandPresent = true;
+            }
+        }
     }
 }
 
@@ -1034,6 +1056,7 @@ struct VMDiscovery {
     VMRegionResult playerRegion;
     VMRegionResult familiarRegion;
     VMRegionResult slotRegion;
+    VMRegionResult npcRegion;
 };
 
 static VMDiscovery DiscoverEntityRegions(const ScanContext& context) {
@@ -1076,6 +1099,9 @@ static VMDiscovery DiscoverEntityRegions(const ScanContext& context) {
                 }
                 if (candidate.slotVTableReferences > discovery.slotRegion.slotVTableReferences) {
                     discovery.slotRegion = candidate;
+                }
+                if (candidate.npcVTableReferences > discovery.npcRegion.npcVTableReferences) {
+                    discovery.npcRegion = candidate;
                 }
             }
         }
@@ -1168,6 +1194,7 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(atomic, getter=isInventoryStateAvailable) BOOL inventoryStateAvailable;
 @property(atomic, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
 @property(atomic, getter=isSuperBumActive) BOOL superBumActive;
+@property(atomic, getter=isMomsHandPresent) BOOL momsHandPresent;
 @property(atomic) NSInteger primaryPlayerType;
 @property(atomic, strong, nullable) EIDPlayerStats *primaryPlayerStats;
 @property(atomic, copy) NSArray<EIDPickupIdentity *> *heldTrinketItems;
@@ -1189,6 +1216,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(nonatomic) vm_size_t familiarRegionSize;
 @property(nonatomic) vm_address_t effectRegionAddress;
 @property(nonatomic) vm_size_t effectRegionSize;
+@property(nonatomic) vm_address_t npcRegionAddress;
+@property(nonatomic) vm_size_t npcRegionSize;
 @property(nonatomic) NSUInteger playerVectorOffset;
 @property(nonatomic) vm_address_t slotRegionAddress;
 @property(nonatomic) vm_size_t slotRegionSize;
@@ -1287,6 +1316,7 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         self.nativeTransformationCounters = @[];
         self.transformationStateAvailable = NO;
         self.superBumActive = NO;
+        self.momsHandPresent = NO;
         self.heldTrinketItems = @[];
         self.smeltedTrinketItems = @[];
         self.primaryPlayerType = 0;
@@ -1443,11 +1473,13 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         self.smeltedTrinketItems = @[];
         self.primaryPlayerType = 0;
         self.primaryPlayerStats = nil;
+        self.primaryPlayerAddress = 0;
         self.inventoryStateAvailable = NO;
         return;
     }
 
     vm_address_t firstPlayer = players.players[0].address;
+    self.primaryPlayerAddress = firstPlayer;
     int32_t identity[3] = {};
     if (ReadOwnTaskMemory(firstPlayer + kEntityTypeOffset, identity, sizeof(identity))) {
         self.primaryPlayerType = identity[2];
@@ -1574,6 +1606,7 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
     VMRegionResult slotResult;
     VMRegionResult effectResult;
     VMRegionResult gridSpikesResult;
+    VMRegionResult npcResult;
     bool pickupRegionValid = self.pickupRegionAddress &&
         ScanVMRegion(self.scanContext, self.pickupRegionAddress, self.pickupRegionSize, pickupResult) &&
         pickupResult.pickupVTableReferences;
@@ -1590,6 +1623,9 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
     bool effectRegionValid = self.effectRegionAddress &&
         ScanVMRegion(self.scanContext, self.effectRegionAddress, self.effectRegionSize, effectResult) &&
         effectResult.effectVTableReferences;
+    bool npcRegionValid = self.npcRegionAddress &&
+        ScanVMRegion(self.scanContext, self.npcRegionAddress, self.npcRegionSize, npcResult) &&
+        npcResult.npcVTableReferences;
     bool gridSpikesResolved = ResolveSacrificeRoomSpikes(
         self.scanContext, gridSpikesResult);
     int32_t currentRoomType = 0;
@@ -1628,7 +1664,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
     if (!pickupRegionValid || !effectRegionValid ||
         (pickupResult.pickupCount && !playerRegionValid) ||
         (self.slotRegionAddress && !slotRegionValid) ||
-        (self.familiarRegionAddress && !familiarRegionValid)) {
+        (self.familiarRegionAddress && !familiarRegionValid) ||
+        (self.npcRegionAddress && !npcRegionValid)) {
         VMDiscovery discovery = DiscoverEntityRegions(self.scanContext);
         if (discovery.pickupRegion.pickupVTableReferences) {
             pickupResult = discovery.pickupRegion;
@@ -1691,15 +1728,29 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
             }
             slotRegionValid = true;
         }
+        if (discovery.npcRegion.npcVTableReferences) {
+            npcResult = discovery.npcRegion;
+            if (npcResult.firstNpcVTableAddress &&
+                npcResult.lastNpcVTableAddress >= npcResult.firstNpcVTableAddress) {
+                self.npcRegionAddress = npcResult.firstNpcVTableAddress;
+                self.npcRegionSize = npcResult.lastNpcVTableAddress -
+                    npcResult.firstNpcVTableAddress + 0x1000;
+            } else {
+                self.npcRegionAddress = npcResult.address;
+                self.npcRegionSize = npcResult.size;
+            }
+            npcRegionValid = true;
+        }
         if (!self.loggedVMDiscovery && pickupRegionValid) {
             self.loggedVMDiscovery = YES;
-            EIDLog(@"safe VM entity discovery: pickup refs %lu, player refs %lu, familiar refs %lu, slot refs %lu, effect refs %lu, spikes refs %lu, "
+            EIDLog(@"safe VM entity discovery: pickup refs %lu, player refs %lu, familiar refs %lu, slot refs %lu, effect refs %lu, npc refs %lu, spikes refs %lu, "
                    "cache %.1f MiB",
                    (unsigned long)pickupResult.pickupVTableReferences,
                    (unsigned long)playerResult.playerVTableReferences,
                    (unsigned long)familiarResult.familiarVTableReferences,
                    (unsigned long)slotResult.slotVTableReferences,
                    (unsigned long)effectResult.effectVTableReferences,
+                   (unsigned long)npcResult.npcVTableReferences,
                    (unsigned long)gridSpikesResult.gridSpikesVTableReferences,
                    (double)self.pickupRegionSize / (1024.0 * 1024.0));
         }
@@ -1712,6 +1763,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         [self updateNativeTransformationCountersForPlayers:playerResult];
         [self updateInventoryForPlayers:playerResult];
         self.superBumActive = familiarRegionValid && familiarResult.superBumActive;
+        self.momsHandPresent = (pickupResult.momsHandPresent || npcResult.momsHandPresent ||
+                                familiarResult.momsHandPresent || effectResult.momsHandPresent);
     } else if (playerVectorResolved) {
         self.inventoryItems = @[];
         self.inventoryStateAvailable = NO;
@@ -1720,6 +1773,7 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
         self.nativeTransformationCounters = @[];
         self.transformationStateAvailable = NO;
         self.superBumActive = NO;
+        self.momsHandPresent = NO;
     }
     [self updatePauseStateForGameplay:self.gameplayActive];
 
@@ -1861,8 +1915,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
                                                                   subtype:pickup.subtype]];
         }
     }
-#if EID_DEBUG_MENU
     self.primaryPlayerAddress = playerResult.playerCount > 0 ? playerResult.players[0].address : 0;
+#if EID_DEBUG_MENU
     NSMutableArray<NSNumber *> *debugAddresses = [NSMutableArray array];
     for (size_t i = 0; i < pickupResult.pickupCount; ++i) {
         if (pickupResult.pickups[i].address) {
@@ -2051,4 +2105,66 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
     return YES;
 }
 #endif
+
+- (BOOL)hasHolyShield {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    uintptr_t tempEffects = playerAddr + 0x18d8;
+    uintptr_t begin = 0;
+    uintptr_t end = 0;
+    if (!ReadOwnTaskMemory(tempEffects + 8, &begin, sizeof(begin)) || !begin) return NO;
+    if (!ReadOwnTaskMemory(tempEffects + 16, &end, sizeof(end)) || !end) return NO;
+    if (end <= begin || end - begin > 8192) return NO;
+
+    size_t count = (end - begin) / 16;
+    for (size_t i = 0; i < count; ++i) {
+        uintptr_t slotAddr = begin + i * 16;
+        uintptr_t itemConfig = 0;
+        int32_t effectCount = 0;
+        if (ReadOwnTaskMemory(slotAddr, &itemConfig, sizeof(itemConfig)) && itemConfig &&
+            ReadOwnTaskMemory(slotAddr + 8, &effectCount, sizeof(effectCount)) && effectCount > 0) {
+            int32_t itemID = 0;
+            if (ReadOwnTaskMemory(itemConfig + 4, &itemID, sizeof(itemID)) && itemID == 313) {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
+- (BOOL)restoreHolyShield {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+
+    intptr_t slide = 0;
+    const mach_header_64 *header = IsaacExecutableHeader(&slide);
+    if (!header || !self.isSupportedBuild) return NO;
+
+    typedef void (*AddCollectibleEffectFn)(void *tempEffects, int collectibleID, bool isNullEffect, int count);
+    AddCollectibleEffectFn addEffect = reinterpret_cast<AddCollectibleEffectFn>(0x1006fd900 + slide);
+
+    addEffect(reinterpret_cast<void *>(playerAddr + 0x18d8), 313, false, 1);
+    EIDLog(@"[RESUME_FIX] Successfully restored Holy Shield via AddCollectibleEffect(313)");
+    return YES;
+}
+
+- (BOOL)setPlayerDamage:(float)damage {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+    return WriteOwnTaskMemory(playerAddr + kPlayerDamageOffset, &damage, sizeof(damage));
+}
+
+- (BOOL)setPlayerMoveSpeed:(float)speed {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+    return WriteOwnTaskMemory(playerAddr + kPlayerMoveSpeedOffset, &speed, sizeof(speed));
+}
+
+- (BOOL)setPlayerMaxFireDelay:(float)fireDelay {
+    vm_address_t playerAddr = (vm_address_t)self.primaryPlayerAddress;
+    if (!playerAddr) return NO;
+    return WriteOwnTaskMemory(playerAddr + kPlayerMaxFireDelayOffset, &fireDelay, sizeof(fireDelay));
+}
+
 @end

@@ -44,6 +44,8 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 @property(atomic, readonly, getter=isInventoryStateAvailable) BOOL inventoryStateAvailable;
 @property(atomic, readonly, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
 @property(atomic, readonly, getter=isSuperBumActive) BOOL superBumActive;
+@property(atomic, readonly, getter=isMomsHandPresent) BOOL momsHandPresent;
+@property(atomic) uintptr_t primaryPlayerAddress;
 @property(atomic, readonly) NSInteger primaryPlayerType;
 @property(atomic, readonly, nullable) EIDPlayerStats *primaryPlayerStats;
 @property(atomic, readonly) NSArray<EIDPickupIdentity *> *heldTrinketItems;
@@ -56,8 +58,12 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 - (NSInteger)nativeTransformationCounterForFormID:(NSInteger)formID;
 // Compatibility API used by early integrations and exported diagnostic helpers.
 - (NSArray<NSNumber *> *)currentCollectibleIDs;
+- (BOOL)hasHolyShield;
+- (BOOL)restoreHolyShield;
+- (BOOL)setPlayerDamage:(float)damage;
+- (BOOL)setPlayerMoveSpeed:(float)speed;
+- (BOOL)setPlayerMaxFireDelay:(float)fireDelay;
 #if EID_DEBUG_MENU
-@property(atomic) uintptr_t primaryPlayerAddress;
 @property(atomic) uintptr_t nearestPickupAddress;
 @property(atomic, copy) NSArray<NSNumber *> *lastPickupAddresses;
 - (BOOL)transformNearestPickupToVariant:(NSInteger)variant subtype:(NSInteger)subtype;
