@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.7 - 2026-10-02
+
+- Merged all upstream v0.7.0 through v0.7.6 improvements:
+  - Flight-based pickup reachability detection (`kPlayerCanFlyOffset`) matching vanilla EID.
+  - Bundled description database updated to EID `ee7f463` with revised Russian translations.
+  - Pixel-art icons for all 17 Soul Stones, Rune Shards, and Cracked Keys matching original EID indexing.
+  - Single-window pass-through touch model for LiveContainer settings and pause inventory.
+  - Active item battery and charge number indicators.
+  - Scrollable settings panel with live Scale and Opacity percentage readouts.
+- Retained all custom fork enhancements:
+  - RT / on-screen drop button frame-repeat edge-detection & debounce fix (Action 11).
+  - Holy Mantle & temporary room buffs restoration across app suspension / Control Center.
+  - Mom's Hand / Dead Hand real-time visual pulse alert.
+  - Car Battery & Tarot Cloth dynamic synergies and Consolation Prize predictions.
+  - Translucent rounded description backdrops and dedicated Debug console build.
+
 ## 0.7.3 - 2026-10-01
 
 - Restored the proven single-window pass-through overlay used by v0.6.1.
