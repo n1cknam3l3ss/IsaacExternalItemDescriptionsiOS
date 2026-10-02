@@ -336,7 +336,6 @@ static bool ReadOwnTaskMemory(vm_address_t address, void *destination, vm_size_t
         copied == size;
 }
 
-#if EID_DEBUG_MENU
 static bool WriteOwnTaskMemory(vm_address_t address, const void *source, vm_size_t size) {
     if (!address || !source || !size) return false;
     kern_return_t kr = vm_write(mach_task_self(), address,
@@ -350,7 +349,6 @@ static bool WriteOwnTaskMemory(vm_address_t address, const void *source, vm_size
     }
     return kr == KERN_SUCCESS;
 }
-#endif
 
 static bool ReadGameObjectAddress(vm_address_t& gameAddress) {
     gameAddress = 0;
