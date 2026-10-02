@@ -610,7 +610,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
                 self.probe.paused;
             [self updatePauseInventoryForPaused:paused];
 
-            if (self.probe.isMomsHandPresent && !self.lastMomsHandPresent) {
+            if (self.probe.isGameplayActive && !paused && self.probe.isMomsHandPresent && !self.lastMomsHandPresent) {
                 [self triggerMomsHandPulse];
             }
             self.lastMomsHandPresent = self.probe.isMomsHandPresent;

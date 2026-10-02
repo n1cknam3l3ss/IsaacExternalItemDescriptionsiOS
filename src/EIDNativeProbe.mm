@@ -1018,7 +1018,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
             if (referenceAddress > result.lastNpcVTableAddress) {
                 result.lastNpcVTableAddress = referenceAddress;
             }
-            if (activeObject && (identity[0] == 213 || identity[0] == 214)) {
+            if (activeObject && positionAvailable && (identity[0] == 213 || identity[0] == 287)) {
                 result.momsHandPresent = true;
             }
         }
