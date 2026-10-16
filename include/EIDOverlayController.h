@@ -14,6 +14,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)enrichDescription:(NSString *)originalDetail
                       forPickup:(EIDPickupIdentity *)pickup
                  displaySubtype:(NSInteger)displaySubtype;
+
+// Shared with the parity renderer; these never change native gameplay state.
+- (nullable EIDPickupIdentity *)prepareCollectibleCycleIdentity:(nullable EIDPickupIdentity *)identity;
+- (void)updateCollectibleCycleControls;
+- (CGFloat)collectibleCycleHeaderInset;
 @end
 
 NS_ASSUME_NONNULL_END

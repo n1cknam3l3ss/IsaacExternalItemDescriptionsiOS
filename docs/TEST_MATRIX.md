@@ -1,5 +1,42 @@
 # Test matrix
 
+## v0.9.0 release validation (2026-10-16)
+
+| Area | Result |
+| --- | --- |
+| Strict ARM64 build and public-library audit | Pass locally; no jailbreak runtime dependency |
+| Host regression suite | Pass: 20-language advanced/contextual descriptions, pickup/native policies, importer, artwork bounds, startup readiness, and scripts |
+| Spindown availability and presentation | Native availability adapter verified; user screenshot confirms the restored arrow-connected chain; unavailable candidates stay hidden |
+| Inline item artwork | User confirmed corrected size after transparent-padding crop |
+| LiveContainer cold-launch joystick | User confirmed fixed on the affected device after native-frame readiness gating |
+| Collection reminder and current-Luck presentation | User screenshots show Twisted Pair's collection reminder and Lodestone's 33.3% line at 3 Luck |
+| Void / Black Rune presentation | User screenshot shows separate predictions; exhaustive predicted-versus-actual absorption checks remain pending |
+| Flip | Included and host-tested; gameplay verification pending |
+| Four new README/website screenshots | Full-resolution supplied PNGs, explanatory captions, and local reference checks |
+| Tainted characters, co-op, all loading modes | Previous outstanding checks below still apply; no claim of exhaustive device coverage |
+
+## v0.8.0 release validation (2026-10-14)
+
+| Area | Result |
+| --- | --- |
+| Strict ARM64 build (`-Wall -Wextra -Werror`) | Pass locally |
+| C++ pickup/native-context policy tests | Pass: flight/knowledge rules, smelted-vector validation, effective passive Belial ownership |
+| Objective-C contextual-description tests | Pass: character/mode/weapon rules, Car Battery/Tarot Cloth, predictions, wisp data, salvage conditions, personal co-op ownership, and uncapped pill transformations |
+| Importer tests | Pass: 24 description/context tests and 2 icon-import tests |
+| Bundled data tests | Pass: 6 tests; 20 languages, 335 weapon rules, 165 wisp records |
+| Overlay architecture / script syntax | Pass locally |
+| Rootless, LiveContainer, embedded, standalone packaging | Pass locally; LiveContainer archive/resources verified |
+| Standalone dylib public-library dependency and ad-hoc signature audits | Pass locally; LiveContainer/embedded apps still require host-side signing |
+| Native startup/resource/context reads on the development phone | Pass |
+| Latest Judas + Birthright / Guppy's Paw regression | User confirmed corrected tooltip after native virtual-ownership fix |
+| Tainted Cain and Tainted Lilith gameplay acceptance | Pending: characters are not unlocked on the test account; host coverage is not a gameplay result |
+| Every new combination across all loading modes / co-op variants | Not exhaustively gameplay-tested; see [character checks and remaining scope](CHARACTER_CONTEXT_TESTING.md) |
+
+## Established coverage and outstanding checks
+
+The following results record earlier validation. A pass here is not a claim that
+every scenario was repeated for v0.8.0 on every installation method.
+
 | Area | Result |
 | --- | --- |
 | ARM64 iOS dylib build | Pass |

@@ -3,6 +3,10 @@
 #import "EIDNativeProbe.h"
 #import "EIDLogger.h"
 #import "EIDTransformationProgress.h"
+#import "EIDGameHost.h"
+#import "EIDContextDescriptions.h"
+#import "EIDDynamicDescriptions.h"
+#import "EIDAdvancedDescriptions.h"
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <math.h>
@@ -171,7 +175,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 @property(nonatomic, strong) EIDNativeProbe *probe;
 @property(nonatomic, strong) EIDPassthroughView *rootView;
 @property(nonatomic, strong) EIDMomsHandVignetteView *momsHandVignette;
-@property(nonatomic, strong) UIView *panel;
+@property(nonatomic, strong) UIControl *panel;
+@property(nonatomic, strong) UIView *descriptionBackground;
 @property(nonatomic, strong) UIImageView *itemIconView;
 @property(nonatomic, strong) UILabel *label;
 @property(nonatomic, strong) UILabel *diagnosticsLabel;
@@ -216,6 +221,13 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 @property(nonatomic, strong) UIScrollView *debugScrollView;
 @property(nonatomic, strong) UILabel *debugStatusLabel;
 #endif
+@property(nonatomic) BOOL descriptionNeedsRefresh;
+@property(nonatomic, strong) UILabel *collectibleCycleIndicator;
+@property(nonatomic, strong) EIDPickupIdentity *collectibleCycleSource;
+@property(nonatomic, strong) NSMutableDictionary<NSString *,NSDictionary *> *collectibleCycleSelections;
+@property(nonatomic, copy) NSString *collectibleCycleScope;
+@property(nonatomic) NSUInteger collectibleCycleSelection;
+@property(nonatomic) NSUInteger collectibleCycleCount;
 @end
 
 @implementation EIDOverlayController
@@ -227,6 +239,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
         [EIDTransformationProgress shared].probe = probe;
         _lastPickups = @[];
         _pocketIconCache = [NSMutableDictionary dictionary];
+        _collectibleCycleSelections = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -299,16 +312,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
 }
 
 - (UIWindow *)gameWindow {
-    UIWindow *fallback = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (window.hidden || window.alpha <= 0 || window.windowLevel != UIWindowLevelNormal) continue;
-            if (window.isKeyWindow) return window;
-            if (!fallback) fallback = window;
-        }
-    }
-    return fallback;
+    return EIDReadyGameWindow();
 }
 
 - (void)attachOverlayIfNeeded {
@@ -316,6 +320,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     if (!window) return;
     if (CGRectIsEmpty(window.bounds)) return;
     if (self.rootView.superview == window) return;
+    self.collectibleCycleIndicator = nil;
+    self.collectibleCycleSource = nil;
     [self.rootView removeFromSuperview];
 
     EIDPassthroughView *root = [[EIDPassthroughView alloc] initWithFrame:window.bounds];
@@ -329,7 +335,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     [root addSubview:vignette];
 
     CGFloat leftMargin = [self overlayLeftMargin];
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectZero];
+    UIControl *panel = [[UIControl alloc] initWithFrame:CGRectZero];
     panel.frame = CGRectMake(leftMargin, [self overlayTopMargin],
                              MIN(340, window.bounds.size.width - leftMargin - EIDOverlayRightMargin),
                              80);
@@ -340,7 +346,11 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     panel.layer.cornerRadius = EIDPanelCornerRadius;
     panel.clipsToBounds = YES;
     panel.alpha = 0;
-    panel.userInteractionEnabled = YES;
+    // Only a validated cycling pickup enables description taps. Ordinary
+    // descriptions remain transparent to Isaac's controls.
+    panel.userInteractionEnabled = NO;
+    [panel addTarget:self action:@selector(advanceCollectibleCycle:)
+        forControlEvents:UIControlEventTouchUpInside];
     panel.autoresizingMask = UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin;
 
     UILabel *label = [[UILabel alloc] initWithFrame:panel.bounds];
@@ -608,14 +618,16 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     if (self.scanInProgress) return;
     self.scanInProgress = YES;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        NSArray<EIDPickupIdentity *> *pickups = [self.probe currentDescribablePickups];
+        NSArray<EIDPickupIdentity *> *rawPickups = [self.probe currentDescribablePickups];
         dispatch_async(dispatch_get_main_queue(), ^{
+            NSMutableArray<EIDPickupIdentity *> *pickups = [NSMutableArray array];
+            for (EIDPickupIdentity *identity in rawPickups)
+                [pickups addObject:[self.probe resolvedSpindownIdentity:[self.probe resolvedPillIdentity:identity]]];
             self.scanInProgress = NO;
             [self updateMenuModeForGameplay:self.probe.gameplayActive];
             BOOL paused = self.probe.gameplayActive && self.probe.pauseStateAvailable &&
                 self.probe.paused;
             [self updatePauseInventoryForPaused:paused];
-
             if (self.probe.isGameplayActive && !paused && self.probe.isMomsHandPresent && !self.lastMomsHandPresent) {
                 [self triggerMomsHandPulse];
             }
@@ -639,18 +651,43 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
                 }
                 self.snapshotActive = NO;
             }
+            if (paused && self.selectedInventoryItem.rawPillSubtype) {
+                EIDPickupIdentity *selected = [self.probe resolvedPillIdentity:self.selectedInventoryItem];
+                if (![selected isEqual:self.selectedInventoryItem]) {
+                    self.selectedInventoryItem = selected;
+                    self.descriptionNeedsRefresh = YES;
+                }
+            }
+            }
             NSString *progressSignature = [[EIDTransformationProgress shared]
                 progressSignatureForPickups:pickups];
+            NSArray *ownedKeys = [[[self.probe currentOwnedItemKeys] allObjects]
+                sortedArrayUsingSelector:@selector(compare:)];
+            NSData *contextBytes = [NSJSONSerialization dataWithJSONObject:self.probe.descriptionState
+                options:NSJSONWritingSortedKeys error:nil];
+            NSString *contextSignature = contextBytes ? [[NSString alloc] initWithData:contextBytes encoding:NSUTF8StringEncoding] : @"";
+            progressSignature = [NSString stringWithFormat:@"%@:%ld:%ld:%@:%@", progressSignature,
+                (long)self.probe.primaryPlayerType, (long)self.probe.gameDifficulty,
+                [ownedKeys componentsJoinedByString:@","], contextSignature];
             BOOL progressChanged = ![progressSignature
                 isEqualToString:self.transformationProgressSignature ?: @""];
             self.transformationProgressSignature = progressSignature;
             if (![pickups isEqualToArray:self.lastPickups] || progressChanged) {
                 self.lastPickups = pickups;
-                if (!self.menuMode && !paused && !self.selectedInventoryItem) {
-                    [self renderPickups:pickups];
-                }
+                self.descriptionNeedsRefresh = YES;
                 EIDLog(@"visible describable pickups: %@", pickups);
             }
+            // A console command may change an item while Isaac is paused.
+            // Repaint the visible floor description too; when an EID panel
+            // covers it, retain invalidation until it can actually be rendered.
+            if (self.descriptionNeedsRefresh && !self.menuMode &&
+                self.settingsCard.hidden && self.inventoryCard.hidden) {
+                NSArray *display = paused && self.selectedInventoryItem
+                    ? @[self.selectedInventoryItem] : self.lastPickups;
+                [self renderPickups:display];
+                self.descriptionNeedsRefresh = NO;
+            }
+            [self updateCollectibleCycleControls];
         });
     });
 }
@@ -691,7 +728,7 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
         if (!self.menuMode) self.settingsCard.hidden = YES;
         if (self.pauseUIActive) {
             self.selectedInventoryItem = nil;
-            if (!self.menuMode) [self renderPickups:self.lastPickups];
+            self.descriptionNeedsRefresh = YES;
             EIDLog(@"pause inventory hidden; gameplay resumed");
         }
     } else if (!self.inventoryCard.hidden) {
@@ -777,8 +814,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     for (EIDPickupIdentity *item in items) {
         [signature appendFormat:@"%ld:%ld,", (long)item.variant, (long)item.subtype];
     }
-    for (EIDPickupIdentity *item in self.probe.smeltedTrinketItems) {
-        [signature appendFormat:@"s%ld,", (long)item.subtype];
+    for (EIDPickupIdentity *item in [self.probe currentSmeltedTrinkets]) {
+        [signature appendFormat:@"smelted=%ld,",(long)item.subtype];
     }
     EIDTransformationProgress *tracker = [EIDTransformationProgress shared];
     tracker.probe = self.probe;
@@ -795,7 +832,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
                                                                     subtype:identity.subtype];
     UIImage *image = description.iconPath.length
         ? [UIImage imageWithContentsOfFile:description.iconPath] : nil;
-    return image ?: [self pocketIconForVariant:identity.variant subtype:identity.subtype];
+    return image ?: [self pocketIconForVariant:identity.rawPillSubtype ? EIDPickupVariantUnidentifiedPill : identity.variant
+                                     subtype:identity.rawPillSubtype ?: identity.subtype];
 }
 
 - (void)addInventoryHeading:(NSString *)title y:(CGFloat *)y width:(CGFloat)width {
@@ -863,24 +901,13 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     BOOL russian = [self.store.languageCode isEqualToString:@"ru"];
     CGFloat width = self.inventoryScrollView.bounds.size.width;
     CGFloat y = 0;
-    NSMutableArray<NSDictionary *> *sections = [NSMutableArray array];
-    if (collectibles.count) {
-        [sections addObject:@{@"title": russian ? @"Предметы" : @"Collectibles", @"items": collectibles}];
-    }
-    if (smeltedTrinkets.count > 0 || heldTrinkets.count > 0) {
-        if (heldTrinkets.count) {
-            [sections addObject:@{@"title": russian ? @"Брелоки (экипированы)" : @"Trinkets (Held)", @"items": heldTrinkets}];
-        }
-        if (smeltedTrinkets.count) {
-            [sections addObject:@{@"title": russian ? @"Проглоченные брелоки" : @"Smelted Trinkets", @"items": smeltedTrinkets}];
-        }
-    } else if (trinkets.count) {
-        [sections addObject:@{@"title": russian ? @"Брелоки" : @"Trinkets", @"items": trinkets}];
-    }
-    if (pockets.count) {
-        [sections addObject:@{@"title": russian ? @"Карты, руны и таблетки" : @"Cards, runes & pills",
-                              @"items": pockets}];
-    }
+    NSArray<NSDictionary *> *sections = @[
+        @{@"title": russian ? @"Предметы" : @"Collectibles", @"items": collectibles},
+        @{@"title": russian ? @"Брелоки" : @"Trinkets", @"items": trinkets},
+        @{@"title": russian ? @"Проглоченные брелоки" : @"Smelted trinkets", @"items": [self.probe currentSmeltedTrinkets]},
+        @{@"title": russian ? @"Карты, руны и таблетки" : @"Cards, runes & pills",
+          @"items": pockets},
+    ];
     for (NSDictionary *section in sections) {
         NSArray<EIDPickupIdentity *> *sectionItems = section[@"items"];
         if (!sectionItems.count) continue;
@@ -924,6 +951,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     self.debugCard.hidden = YES;
 #endif
     if (!self.inventoryCard.hidden) {
+        self.collectibleCycleIndicator.hidden = YES;
+        self.panel.userInteractionEnabled = NO;
         [self rebuildInventoryContentsIfNeeded:YES];
         [self.rootView bringSubviewToFront:self.inventoryCard];
         self.panel.alpha = 0;
@@ -943,6 +972,9 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     if (variant <= 0 || subtype <= 0) return;
     EIDPickupIdentity *identity = [[EIDPickupIdentity alloc] initWithVariant:variant
                                                                     subtype:subtype];
+    for (EIDPickupIdentity *entry in [self.probe currentInventoryItems]) {
+        if (entry.variant == variant && entry.subtype == subtype) { identity = entry; break; }
+    }
     self.selectedInventoryItem = identity;
     self.inventoryCard.hidden = YES;
     [self renderPickups:@[identity]];
@@ -953,6 +985,8 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     (void)sender;
     self.settingsCard.hidden = !self.settingsCard.hidden;
     if (!self.settingsCard.hidden) {
+        self.collectibleCycleIndicator.hidden = YES;
+        self.panel.userInteractionEnabled = NO;
         self.inventoryCard.hidden = YES;
 #if EID_DEBUG_MENU
         self.debugCard.hidden = YES;
@@ -1088,235 +1122,130 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     return image;
 }
 
-static NSDictionary<NSNumber *, NSArray<NSNumber *> *> *EIDWeaponOverridesTable(void) {
-    static NSDictionary *table;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        table = @{
-            @579: @[@52, @69, @118, @168, @229, @316, @329, @379, @394, @395, @397, @440, @556, @597], // Spirit Sword
-            @168: @[@374, @429, @553, @572, @678], // Epic Fetus
-            @678: @[@69, @229, @316, @329, @397, @410, @533, @572, @597], // C-Section
-            @52:  @[@68, @118, @374, @401, @429, @444, @461, @572, @597, @637], // Dr. Fetus
-            @114: @[@5, @69, @132, @221, @224, @316, @379, @401, @410, @459, @461, @462, @529, @532, @533, @572, @597], // Mom's Knife
-            @118: @[@316, @379, @410, @440, @453, @461, @462, @524, @533, @540, @597], // Brimstone
-            @395: @[@5, @69, @104, @233, @316, @329, @379, @397, @410, @453, @461, @524, @529, @532, @533, @540, @572, @597], // Tech X
-            @68:  @[@410, @462, @524, @533, @540, @597], // Technology
-            @329: @[@69, @222, @224, @316, @394, @397, @410, @532], // Ludovico
-            @561: @[@330], // Almond Milk
-        };
-    });
-    return table;
+- (void)clearCollectibleCycleControls {
+    self.collectibleCycleSource = nil;
+    self.collectibleCycleIndicator.hidden = YES;
+    self.panel.userInteractionEnabled = NO;
+    self.panel.isAccessibilityElement = NO;
 }
 
-static NSArray<NSNumber *> *EIDAzazelOverriddenList(void) {
-    static NSArray *list;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        list = @[@316, @379, @410, @440, @453, @461, @462, @524, @533, @540, @597];
-    });
-    return list;
+- (EIDPickupIdentity *)prepareCollectibleCycleIdentity:(EIDPickupIdentity *)identity {
+    if (!identity) { [self clearCollectibleCycleControls]; return nil; }
+    EIDPickupIdentity *native = [self.probe resolvedCollectibleCycleIdentity:identity];
+    if ([native.pickupContext[@"collectible_hidden"] boolValue]) {
+        [self clearCollectibleCycleControls];
+        return nil;
+    }
+    NSDictionary *cycle = native.pickupContext[@"collectible_cycle"];
+    NSArray *items = cycle[@"items"];
+    NSString *key = cycle[@"key"], *scope = cycle[@"scope"];
+    if (![items isKindOfClass:NSArray.class] || items.count < 5 || items.count > 9 ||
+        ![key isKindOfClass:NSString.class] || !key.length || ![scope isKindOfClass:NSString.class]) {
+        [self clearCollectibleCycleControls];
+        return native;
+    }
+    // Do not disable/re-enable the control on every valid scan: UIKit would
+    // cancel a tap still being tracked when the refresh happens mid-gesture.
+    if (![scope isEqual:self.collectibleCycleScope]) {
+        [self.collectibleCycleSelections removeAllObjects];
+        self.collectibleCycleScope = scope;
+    }
+    NSDictionary *previous = self.collectibleCycleSelections[key];
+    NSUInteger selection = [previous[@"items"] isEqual:items] ? [previous[@"selection"] unsignedIntegerValue] : 0;
+    if (selection > items.count) selection = 0;
+    if (!previous && self.collectibleCycleSelections.count >= 64) [self.collectibleCycleSelections removeAllObjects];
+    self.collectibleCycleSelections[key] = @{@"items":items,@"selection":@(selection)};
+    self.collectibleCycleSelection = selection;
+    self.collectibleCycleCount = items.count;
+    self.collectibleCycleSource = native;
+    NSMutableDictionary *context = native.pickupContext.mutableCopy;
+    context[@"crown_overview"] = @(selection == 0);
+    context[@"crown_selection"] = @(selection);
+    [context removeObjectForKey:@"spindown"]; // Never reuse the live rotating item's chain for a different preview.
+    NSInteger displayID = selection ? [items[selection-1] integerValue] : 689;
+    EIDPickupIdentity *display = [[EIDPickupIdentity alloc] initWithVariant:100 subtype:displayID
+        playerType:native.playerType playerIndex:native.playerIndex rawPillSubtype:0
+        pillModifiers:native.pillModifiers pickupContext:context];
+    return selection ? [self.probe resolvedSpindownIdentity:display] : display;
 }
 
-static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
-    static NSArray *list;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        list = @[@579, @168, @52, @114, @531];
-    });
-    return list;
+- (void)advanceCollectibleCycle:(UIControl *)sender {
+    (void)sender;
+    if (!self.collectibleCycleSource || self.menuMode || self.selectedInventoryItem ||
+        !self.settingsCard.hidden || !self.inventoryCard.hidden) return;
+    EIDPickupIdentity *fresh = [self.probe resolvedCollectibleCycleIdentity:self.collectibleCycleSource];
+    NSDictionary *cycle = fresh.pickupContext[@"collectible_cycle"];
+    NSString *key = cycle[@"key"];
+    NSDictionary *previous = key ? self.collectibleCycleSelections[key] : nil;
+    if (!previous || ![previous[@"items"] isEqual:cycle[@"items"]]) {
+        [self clearCollectibleCycleControls];
+        self.descriptionNeedsRefresh = YES;
+        return;
+    }
+    NSUInteger selection = [previous[@"selection"] unsignedIntegerValue]+1;
+    if (selection > [cycle[@"items"] count]) selection = 0;
+    self.collectibleCycleSelections[key] = @{@"items":cycle[@"items"],@"selection":@(selection)};
+    [self renderPickups:@[fresh]];
+    self.descriptionNeedsRefresh = YES;
+}
+
+- (CGFloat)collectibleCycleHeaderInset {
+    if (!self.collectibleCycleSource || self.menuMode || self.selectedInventoryItem ||
+        !self.settingsCard.hidden || !self.inventoryCard.hidden) return 0;
+    CGFloat scale = [NSUserDefaults.standardUserDefaults objectForKey:@"IsaacEIDScale"]
+        ? [NSUserDefaults.standardUserDefaults doubleForKey:@"IsaacEIDScale"] : 1;
+    return 58 * MIN(1.8,MAX(.5,scale));
+}
+
+- (void)updateCollectibleCycleControls {
+    BOOL visible = self.collectibleCycleSource && !self.menuMode && !self.selectedInventoryItem &&
+        self.probe.gameplayActive && self.panel.alpha > .01 && self.collectibleCycleCount >= 5 &&
+        self.settingsCard.hidden && self.inventoryCard.hidden && self.rootView.superview;
+    self.panel.userInteractionEnabled = visible;
+    self.panel.isAccessibilityElement = visible;
+    if (!visible) { self.collectibleCycleIndicator.hidden = YES; return; }
+    if (!self.collectibleCycleIndicator) {
+        UILabel *indicator = [[UILabel alloc] initWithFrame:CGRectZero];
+        indicator.backgroundColor = UIColor.clearColor;
+        indicator.textColor = UIColor.whiteColor;
+        indicator.textAlignment = NSTextAlignmentRight;
+        indicator.shadowColor = [UIColor colorWithWhite:0 alpha:.95];
+        indicator.shadowOffset = CGSizeMake(1,1);
+        indicator.userInteractionEnabled = NO;
+        [self.panel addSubview:indicator];
+        self.collectibleCycleIndicator = indicator;
+    }
+    CGFloat inset = [self collectibleCycleHeaderInset], scale = inset / 58;
+    NSString *title = [NSString stringWithFormat:@"%lu/%lu ›",
+        (unsigned long)self.collectibleCycleSelection,(unsigned long)self.collectibleCycleCount];
+    self.collectibleCycleIndicator.text = title;
+    self.collectibleCycleIndicator.font = [UIFont monospacedDigitSystemFontOfSize:10.5 * scale weight:UIFontWeightSemibold];
+    self.collectibleCycleIndicator.alpha = self.label.alpha;
+    self.collectibleCycleIndicator.frame = CGRectMake(MAX(0,self.panel.bounds.size.width-inset),0,inset,22*scale);
+    self.collectibleCycleIndicator.hidden = NO;
+    self.panel.accessibilityTraits = UIAccessibilityTraitButton;
+    self.panel.accessibilityLabel = [NSString stringWithFormat:@"%@, %@",self.label.attributedText.string,title];
+    self.panel.accessibilityHint = @"Tap the description to inspect the next item";
+    [self.panel bringSubviewToFront:self.collectibleCycleIndicator];
 }
 
 - (NSString *)enrichDescription:(NSString *)originalDetail
                       forPickup:(EIDPickupIdentity *)pickup
                  displaySubtype:(NSInteger)displaySubtype {
-    __block NSString *detail = originalDetail ?: @"";
-    NSMutableSet<NSString *> *addedLines = [NSMutableSet set];
-    void (^appendLine)(NSString *) = ^(NSString *line) {
-        if (!line.length || [addedLines containsObject:line]) return;
-        [addedLines addObject:line];
-        if (detail.length == 0) {
-            detail = line;
-        } else {
-            detail = [detail stringByAppendingFormat:@"#%@", line];
-        }
-    };
-
-    NSArray<EIDPickupIdentity *> *inventory = [self.probe currentInventoryItems];
-    NSInteger playerType = self.probe.primaryPlayerType;
-    EIDPlayerStats *stats = self.probe.primaryPlayerStats;
-    BOOL isRussian = [self.store.languageCode isEqualToString:@"ru"];
-
-    NSMutableSet<NSNumber *> *heldCollectibles = [NSMutableSet set];
-    for (EIDPickupIdentity *invItem in inventory) {
-        if (invItem.variant == EIDPickupVariantCollectible) {
-            [heldCollectibles addObject:@(invItem.subtype)];
-        }
-    }
-
-    // 1. Consolation Prize (ID 644)
-    if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 644) {
-        if (stats != nil) {
-            double speedScore = round(((stats.moveSpeed * 4.5) - 2.0) * 100.0) / 100.0;
-            double fireRate = 30.0 / (MAX(0.0, (double)stats.maxFireDelay) + 1.0);
-            double tearsScore = round(((pow(fireRate, 0.75) * 2.120391) - 2.0) * 100.0) / 100.0;
-            double dmg = MAX(0.0, (double)stats.damage);
-            double damageScore = round(((pow(dmg, 0.56) * 2.231179) - 2.0) * 100.0) / 100.0;
-            double rangeScore = round((((stats.tearRange - 230.0) / 60.0) + 2.0) * 100.0) / 100.0;
-
-            double scores[4] = { speedScore, tearsScore, damageScore, rangeScore };
-            double minScore = scores[0];
-            for (int i = 1; i < 4; ++i) {
-                if (scores[i] < minScore) minScore = scores[i];
-            }
-            NSMutableArray<NSNumber *> *lowestStats = [NSMutableArray array];
-            for (int i = 0; i < 4; ++i) {
-                if (fabs(scores[i] - minScore) < 0.001) {
-                    [lowestStats addObject:@(i)];
-                }
-            }
-
-            int coins = stats.coins;
-            int bombs = stats.bombs * 3;
-            int keys = stats.keys * 3;
-            int pScores[3] = { coins, bombs, keys };
-            int minPickup = pScores[0];
-            for (int i = 1; i < 3; ++i) {
-                if (pScores[i] < minPickup) minPickup = pScores[i];
-            }
-            NSMutableArray<NSNumber *> *lowestPickups = [NSMutableArray array];
-            for (int i = 0; i < 3; ++i) {
-                if (pScores[i] == minPickup) {
-                    [lowestPickups addObject:@(i)];
-                }
-            }
-
-            for (NSNumber *sNum in lowestStats) {
-                int s = sNum.intValue;
-                NSString *statStr = nil;
-                if (s == 0) statStr = isRussian ? @"↑ {{Speed}} +0.2 к скорости" : @"↑ {{Speed}} +0.2 Speed";
-                else if (s == 1) statStr = isRussian ? @"↑ {{Tears}} +0.5 к скорострельности" : @"↑ {{Tears}} +0.5 Fire rate";
-                else if (s == 2) statStr = isRussian ? @"↑ {{Damage}} +1 к урону" : @"↑ {{Damage}} +1 Damage";
-                else if (s == 3) statStr = isRussian ? @"↑ {{Range}} +2.5 к дальности" : @"↑ {{Range}} +2.5 Range";
-                if (lowestStats.count > 1) statStr = [statStr stringByAppendingString:@"?"];
-                appendLine(statStr);
-            }
-
-            for (NSNumber *pNum in lowestPickups) {
-                int p = pNum.intValue;
-                NSString *pStr = nil;
-                if (p == 0) pStr = isRussian ? @"{{Coin}} 3 монеты" : @"{{Coin}} 3 Coins";
-                else if (p == 1) pStr = isRussian ? @"{{Bomb}} 1 бомба" : @"{{Bomb}} 1 Bomb";
-                else if (p == 2) pStr = isRussian ? @"{{Key}} 1 ключ" : @"{{Key}} 1 Key";
-                if (lowestPickups.count > 1) pStr = [pStr stringByAppendingString:@"?"];
-                appendLine(pStr);
-            }
-        } else {
-            appendLine(isRussian ? @"{{ArrowUp}} Даёт бонус к наименьшему стату + расходники" : @"{{ArrowUp}} Gives boost to lowest stat + pickups");
-        }
-    }
-
-    // 2. Car Battery Synergy
-    if ([heldCollectibles containsObject:@356]) {
-        if (pickup.variant == EIDPickupVariantCollectible) {
-            NSString *synergy = [self.store carBatterySynergyForActiveCollectibleID:displaySubtype];
-            if (synergy.length > 0) {
-                appendLine([NSString stringWithFormat:@"{{Collectible356}} %@", synergy]);
-            }
-        }
-    } else if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 356) {
-        for (NSNumber *heldId in heldCollectibles) {
-            NSString *synergy = [self.store carBatterySynergyForActiveCollectibleID:heldId.integerValue];
-            if (synergy.length > 0) {
-                EIDDescription *heldDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
-                                                                            subtype:heldId.integerValue];
-                NSString *heldName = heldDesc.name.length ? heldDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
-                appendLine([NSString stringWithFormat:@"{{Collectible%ld}} %@: %@", (long)heldId.integerValue, heldName, synergy]);
-            }
-        }
-    }
-
-    // 3. Tarot Cloth Buff
-    if ([heldCollectibles containsObject:@451]) {
-        if (pickup.variant == EIDPickupVariantCard) {
-            NSString *buff = [self.store tarotClothBuffForCardID:displaySubtype];
-            if (buff.length > 0) {
-                appendLine([NSString stringWithFormat:@"{{Collectible451}} %@", buff]);
-            }
-        }
-    } else if (pickup.variant == EIDPickupVariantCollectible && displaySubtype == 451) {
-        for (EIDPickupIdentity *invItem in inventory) {
-            if (invItem.variant == EIDPickupVariantCard) {
-                NSString *buff = [self.store tarotClothBuffForCardID:invItem.subtype];
-                if (buff.length > 0) {
-                    EIDDescription *cardDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCard
-                                                                               subtype:invItem.subtype];
-                    NSString *cardName = cardDesc.name.length ? cardDesc.name : [NSString stringWithFormat:@"%ld", (long)invItem.subtype];
-                    appendLine([NSString stringWithFormat:@"{{Card}} %@: %@", cardName, buff]);
-                }
-            }
-        }
-    }
-
-    // 4. Weapon Override Warnings & Conflicts
-    if (pickup.variant == EIDPickupVariantCollectible) {
-        NSDictionary<NSNumber *, NSArray<NSNumber *> *> *overrideTable = EIDWeaponOverridesTable();
-        BOOL isAzazel = (playerType == 7 || playerType == 25);
-        if (isAzazel) {
-            if ([EIDAzazelOverriddenList() containsObject:@(displaySubtype)]) {
-                appendLine(isRussian ? @"{{Warning}} Переопределено: Сера Азазеля" : @"{{Warning}} Overridden by: Azazel's Brimstone");
-            }
-            if ([EIDAzazelOverridingList() containsObject:@(displaySubtype)]) {
-                appendLine(isRussian ? @"{{Warning}} Переопределяет: Сера Азазеля" : @"{{Warning}} Overrides: Azazel's Brimstone");
-            }
-        }
-        for (NSNumber *heldId in heldCollectibles) {
-            NSArray<NSNumber *> *heldOverrides = overrideTable[heldId];
-            if ([heldOverrides containsObject:@(displaySubtype)]) {
-                EIDDescription *hDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
-                                                                            subtype:heldId.integerValue];
-                NSString *hName = hDesc.name.length ? hDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
-                NSString *warn = isRussian
-                    ? [NSString stringWithFormat:@"{{Warning}} Переопределено: {{Collectible%ld}} %@", (long)heldId.integerValue, hName]
-                    : [NSString stringWithFormat:@"{{Warning}} Overridden by: {{Collectible%ld}} %@", (long)heldId.integerValue, hName];
-                appendLine(warn);
-            }
-            NSArray<NSNumber *> *thisOverrides = overrideTable[@(displaySubtype)];
-            if ([thisOverrides containsObject:heldId]) {
-                EIDDescription *hDesc = [self.store descriptionForPickupVariant:EIDPickupVariantCollectible
-                                                                            subtype:heldId.integerValue];
-                NSString *hName = hDesc.name.length ? hDesc.name : [NSString stringWithFormat:@"%ld", (long)heldId.integerValue];
-                NSString *warn = isRussian
-                    ? [NSString stringWithFormat:@"{{Warning}} Переопределяет: {{Collectible%ld}} %@", (long)heldId.integerValue, hName]
-                    : [NSString stringWithFormat:@"{{Warning}} Overrides: {{Collectible%ld}} %@", (long)heldId.integerValue, hName];
-                appendLine(warn);
-            }
-        }
-    }
-
-    // 5. Character-Specific Warnings (The Lost / Keeper)
-    if (playerType == 10 || playerType == 31) { // The Lost / Tainted Lost
-        if (pickup.variant == EIDPickupVariantCollectible) {
-            if (displaySubtype == 126 || displaySubtype == 135 || displaySubtype == 186) {
-                appendLine(isRussian ? @"{{Warning}} Убивает при использовании!" : @"{{Warning}} Kills on use!");
-            } else if (displaySubtype == 475) {
-                appendLine(isRussian ? @"{{Warning}} Убивает персонажа!" : @"{{Warning}} Kills the character!");
-            }
-        } else if (pickup.variant == EIDPickupVariantCard && displaySubtype == 46) {
-            appendLine(isRussian ? @"{{Warning}} Убивает персонажа!" : @"{{Warning}} Kills the character!");
-        }
-    } else if (playerType == 14 || playerType == 33) { // Keeper / Tainted Keeper
-        if (pickup.variant == EIDPickupVariantCollectible) {
-            if (displaySubtype == 227) {
-                appendLine(isRussian ? @"{{Warning}} Выпадает только 0-1 монета" : @"{{Warning}} Only drops 0-1 coins");
-            } else if (displaySubtype == 135) {
-                appendLine(isRussian ? @"{{Warning}} Даёт только 0-1 монету" : @"{{Warning}} Only pays out 0-1 coins");
-            }
-        } else if (pickup.variant == EIDPickupVariantTrinket && displaySubtype == 1) {
-            appendLine(isRussian ? @"{{Warning}} Выпадает только 0-1 монета" : @"{{Warning}} Only drops 0-1 coins");
-        }
-    }
-
+    if (!originalDetail) originalDetail = @"";
+    NSSet *owned = [self.probe currentOwnedItemKeys];
+    NSInteger playerType = pickup.playerType >= 0 ? pickup.playerType : self.probe.primaryPlayerType;
+    NSMutableDictionary *context = self.store.contextData.mutableCopy;
+    context[@"live_state"] = self.probe.descriptionState;
+    context[@"pickup_context"] = pickup.pickupContext;
+    context[@"player_type"] = @(playerType);
+    NSString *detail = EIDContextDescriptionWithOwnedItems(originalDetail, pickup.variant, displaySubtype,
+        playerType, self.probe.gameDifficulty, owned, context);
+    detail = EIDDynamicDescription(detail, pickup.variant, displaySubtype, self.probe.gameDifficulty, owned, context);
+    detail = EIDAdvancedDescription(detail, pickup.variant, displaySubtype, self.probe.gameDifficulty, owned, context);
+    detail = EIDCollectionDescription(detail, pickup.variant, displaySubtype, context);
     return detail;
+}
 }
 
 - (void)renderPickups:(NSArray<EIDPickupIdentity *> *)pickups {
@@ -1429,6 +1358,25 @@ static NSArray<NSNumber *> *EIDAzazelOverridingList(void) {
                panelWidth,
                panelHeight);
     }
+}
+
+- (void)applyDescriptionBackground {
+    if (!self.panel) return;
+    if (!self.descriptionBackground) {
+        UIView *backdrop = [[UIView alloc] initWithFrame:CGRectInset(self.panel.bounds, -6, -4)];
+        backdrop.userInteractionEnabled = NO;
+        backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        backdrop.layer.cornerRadius = 7;
+        [self.panel insertSubview:backdrop atIndex:0];
+        self.descriptionBackground = backdrop;
+    }
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    BOOL enabled = [defaults boolForKey:@"IsaacEIDBackgroundEnabled"];
+    CGFloat opacity = [defaults objectForKey:@"IsaacEIDBackgroundOpacity"]
+        ? [defaults doubleForKey:@"IsaacEIDBackgroundOpacity"] : .28;
+    self.descriptionBackground.hidden = !enabled;
+    self.descriptionBackground.backgroundColor = [UIColor colorWithWhite:0 alpha:MIN(1, MAX(0, opacity))];
+    self.descriptionBackground.frame = CGRectInset(self.panel.bounds, -6, -4);
 }
 
 - (NSString *)renderMarkup:(NSString *)input {

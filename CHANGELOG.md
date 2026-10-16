@@ -1,20 +1,120 @@
 # Changelog
 
-## 0.7.7 - 2026-10-02
+## 0.10.0 - 2026-10-16
 
-- Merged all upstream v0.7.0 through v0.7.6 improvements:
-  - Flight-based pickup reachability detection (`kPlayerCanFlyOffset`) matching vanilla EID.
-  - Bundled description database updated to EID `ee7f463` with revised Russian translations.
-  - Pixel-art icons for all 17 Soul Stones, Rune Shards, and Cracked Keys matching original EID indexing.
-  - Single-window pass-through touch model for LiveContainer settings and pause inventory.
-  - Active item battery and charge number indicators.
-  - Scrollable settings panel with live Scale and Opacity percentage readouts.
-- Retained all custom fork enhancements:
-  - RT / on-screen drop button frame-repeat edge-detection & debounce fix (Action 11).
-  - Holy Mantle & temporary room buffs restoration across app suspension / Control Center.
-  - Mom's Hand / Dead Hand real-time visual pulse alert.
-  - Car Battery & Tarot Cloth dynamic synergies and Consolation Prize predictions.
-  - Translucent rounded description backdrops and dedicated Debug console build.
+### Added (emp0ry upstream v0.8.0 - v0.10.0)
+
+- Glitched Crown pedestal candidate overview and interactive tap cycling.
+- Abyss locust counts, damage multipliers, and special Locust effects.
+- Wild Card and Vurp! repeat previews based on native last-used state.
+- Three-use Spindown Dice previews with native unlock eligibility and Car Battery.
+- Character-aware contextual descriptions, Lost/Keeper lethal warnings, Birthright bonuses.
+- All 335 standard-Repentance weapon override rules and synergies.
+- Separate Void and Black Rune stat predictions from native copied RNG.
+- Collection-page reminders and live pill synergies.
+
+### Retained Custom Fork Enhancements
+
+- RT / on-screen drop button frame-repeat edge-detection & debounce fix (Action 11).
+- Holy Mantle & temporary room buffs restoration across app suspension / Control Center.
+- Mom's Hand / Dead Hand real-time visual pulse alert.
+- Translucent rounded description backdrops and dedicated Debug console build.
+## 0.9.0 - 2026-10-16
+
+### Added
+
+- Three-use Spindown Dice previews with native unlock/run eligibility, Car Battery,
+  Dad's Note stopping, disappearance text, and one arrow-connected result chain.
+- Separate Void and Black Rune stat predictions from copied native RNG, including
+  room, purchased-item, and single-item cases without consuming game RNG.
+- Current-Luck proc chances using standard-Repentance formulas.
+- Golden-trinket and Mom's Box effect multipliers and localized special cases.
+- Blank Card, Clear Rune, and Placebo mimic charge costs from native item metadata.
+- Flip alternate-pedestal descriptions with blind-item protection retained.
+- Active-slot collection-page reminders, independent of run inventory and unlocks.
+- Distinctive-model shop card/rune/Soul Stone descriptions while protecting shared
+  unknown models and Options? choices.
+- Player-specific PHD/False PHD effects, rewards, horse pills, Experimental Pill,
+  and combined-item behavior.
+
+### Fixed
+
+- Removed PHD/False PHD continuing to affect tooltip rewards through stale ownership.
+- Spindown now skips unavailable IDs completely instead of showing crossed-out
+  candidates; result arrows no longer insert a new line for each use.
+- Transparent sprite padding shrinking inline collectible/trinket icons, including
+  Spindown results and Pandora's Box's Bible and Red Key, without shrinking the font.
+- LiveContainer cold-launch joystick artifact: wait for Isaac's native render view
+  and advancing frames before loading EID, retaining the single-window overlay.
+
+### Documentation and validation
+
+- Four new full-resolution screenshots with explanatory captions in README and on
+  the website: absorption, Spindown, collection reminders, and current Luck.
+- Updated the attributed resource pin to `8b59d00c6828e333294639ad2b2b6875eae821cb`;
+  standard Repentance rules only, not Repentance+ patches.
+- User confirmed the inline icon sizes and LiveContainer joystick correction.
+  Screenshots document the new rendering; they do not prove every prediction.
+- Flip and exhaustive combination/device checks remain pending. See the
+  [complete notes](docs/RELEASE_NOTES_v0.9.0.md) and [test matrix](docs/TEST_MATRIX.md).
+
+## 0.8.0 - 2026-10-14
+
+### Added
+
+- Character-aware descriptions with Lost/Keeper no-effect and lethal-use warnings,
+  health-type replacements, Birthright descriptions, and co-op difference notices.
+- Additional character rules for Eye Drops, Uranus/Tainted Samson, Keeper/IV Bag,
+  tainted Clicker, Dead Cat, and Lilith/Tainted Lilith with BFFS!.
+- All 335 imported standard-Repentance weapon override rules in both directions,
+  including weapon priorities, Azazel, and combination-specific synergy text.
+- Car Battery and Tarot Cloth conditional descriptions, numeric effect changes,
+  special active-item behavior, and no-synergy warnings.
+- Book of Virtues wisp previews using 165 upstream wisp records, including health,
+  damage, orbit, tear effects, single-room wisps, and no-wisp cases.
+- Judas/Black Judas Birthright passive Book of Belial bonuses for supported actives.
+- Tainted Cain salvage descriptions with personal Birthright/trinket bonuses,
+  room-pool rewards, and quest-item/special-context protection.
+- A separate pause-inventory section for smelted/swallowed normal and golden
+  trinkets, also included in owned-item conditional checks.
+- Consolation Prize predictions using normalized stats, weighted consumables,
+  tie markers, Bethany charge pools, and co-op summaries.
+- Pandora's Box current-floor payout highlighting, including Greed/Greedier,
+  late-game routes, Void/Home, and Strange Key's overriding reward.
+- An optional black description background with independent opacity controls.
+- Imported contextual localization with English fallback across all 20 languages.
+
+### Fixed
+
+- Lost warnings and Birthright descriptions using the wrong character names due
+  to Lua/native character-index differences, including the incorrect Eden warning.
+- Judas' Birthright bonuses disappearing because passive Book of Belial is
+  virtual ownership rather than a raw collectible-count entry.
+- Greed-only text appearing in normal runs or being duplicated in Greed, including
+  Russian Contract from Below; mode-specific room/wave wording is now applied.
+- Adult/Stompy pill transformation rendering, including identified horse pills,
+  and counters being capped at completion instead of showing values such as `4/3`.
+- Stale contextual descriptions after inventory changes while standing still,
+  and asynchronous transformation text replacement.
+- Same-character co-op players borrowing another player's Birthright/trinkets;
+  pause conditional checks now use the primary player's personal inventory.
+- Pandora's Box floor rewards appearing on one long semicolon-separated line.
+- Missing Repentance stat-icon aliases, including the damage sword in Bethany's
+  wisp stats; older resource bundles also get runtime alias fallback.
+- Numeric conditional replacements matching only part of a decimal or applying
+  the same replacement more than once.
+
+### Documentation and validation
+
+- Updated README and website with six new full-resolution gameplay screenshots,
+  replacing the old The Pact image; added clearer feature and limitation coverage.
+- Added character acceptance commands, native-layout notes, and parity scope.
+- Expanded C++/Objective-C/Python regression checks for conditional descriptions,
+  all-language fallback, native state validation, icons, and LiveContainer assets.
+- Retained portable ARM64, rootless, LiveContainer, and embedded distributions.
+  No IPA, game binary, save, or credential is distributed.
+- Tainted Cain/Tainted Lilith gameplay checks remain pending; their host tests do
+  not establish full in-game parity. See the [full release notes](docs/RELEASE_NOTES_v0.8.0.md).
 
 ## 0.7.3 - 2026-10-01
 

@@ -8,6 +8,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from eid_context import rules as context_rules, table as context_table, weapon_rules, battery_metadata, pandora_floor_lines
+from eid_context import greed_no_effect_notes
+from eid_context import character_metadata
+from eid_context import luck_formulas
+from eid_context import abyss_locusts, abyss_descriptions
+from eid_context import black_feather_metadata
 
 
 ENTRY = re.compile(r"^\s*(?:\[(\d+)\]\s*=\s*)?\{")
@@ -277,8 +283,67 @@ def main() -> int:
         categories["strings"] = {
             "unidentified_pill": unidentified_pill or "Unidentified Pill"
         }
+        for output_name, table_name in (("conditionals", "ConditionalDescs"),
+                                        ("heart_replacements", "RedToX"),
+                                        ("birthright", "birthright"),
+                                        ("car_battery", "carBattery"),
+                                        ("tarot_cloth", "tarotClothBuffs"),
+                                        ("BFFSSynergies", "BFFSSynergies"),
+                                        ("book_of_belial", "bookOfBelialBuffs"),
+                                        ("wisp_texts", "BookOfVirtuesWispTexts"),
+                                        ("wisp_extras", "bookOfVirtuesWisps"),
+                                        ("tear_flags", "TearFlagNames"),
+                                        ("abyss_texts", "AbyssTexts"),
+                                        ("abyss_effects", "AbyssLocustEffects"),
+                                        ("abyss_synergies", "abyssSynergies"),
+                                        ("stat_names", "VoidNames"),
+                                        ("pickup_names", "PickupNames")):
+            merged = {}
+            for path in files:
+                merged.update(context_table(path.read_text(encoding="utf-8-sig"), table_name))
+                if output_name == "conditionals":
+                    merged.update(context_table(path.read_text(encoding="utf-8-sig"), "repConditions"))
+                if output_name == "car_battery":
+                    merged.update(context_table(path.read_text(encoding="utf-8-sig"), "repCarBattery"))
+                if output_name == "BFFSSynergies":
+                    merged.update(context_table(path.read_text(encoding="utf-8-sig"), "repBFFSSynergies"))
+            if output_name == "birthright":
+                # Upstream Lua indexes Birthright by PlayerType + 1. Other
+                # context tables retain Lua's one-based arrays; this exported
+                # table is deliberately keyed by the native zero-based enum.
+                merged = {str(int(key) - 1): entry for key, entry in merged.items()
+                          if key.isdigit() and 1 <= int(key) <= 41}
+            categories[output_name] = merged
+        for output_name, table_name in (("golden_trinket_effects", "goldenTrinketEffects"),
+                                        ("golden_trinket_overrides", "goldenTrinketData"),
+                                        ("tarot_cloth_blank_card", "tarotClothBlankCardBuffs")):
+            merged = {}
+            for path in files:
+                merged.update(context_table(path.read_text(encoding="utf-8-sig"), table_name))
+            categories[output_name] = merged
+        categories["pandora_floor_lines"] = pandora_floor_lines(categories)
+        categories["context_strings"] = {}
+        for path in files:
+            strange_key = parse_string_assignment(path, "PandorasBoxStrangeKeyEffect")
+            if strange_key:
+                categories["context_strings"]["pandora_strange_key"] = strange_key
+            for key in ("TaintedCainPedestalBase", "TaintedCainPedestalBaseBirthright",
+                        "TaintedCainPedestalGuaranteed", "TaintedCainPedestalBonus",
+                        "TaintedCainPedestalLuckyToe", "TaintedCainPedestalLuckyToeBirthright",
+                        "TaintedCainPedestalDaemonsTail", "CollectionPageInfo", "FalsePHDHeart",
+                        "FalsePHDDamage", "FalsePHDHorseDamage", "ExperimentalPillPHD",
+                        "ExperimentalPillFalsePHD", "LuckModifier", "goldenTrinket", "tripledTrinket",
+                        "quadrupledTrinket", "VariableCharge", "BlankCardEffect", "spindownError",
+                        "ResultsWithX", "VoidText", "VoidShopText", "VoidOptionText", "BlackFeatherInformation",
+                        "GlitchedCrownToggleInfo"):
+                text = parse_string_assignment(path, key)
+                if text:
+                    categories["context_strings"][key] = text
         languages[code] = categories
         counts.append(f"{code}({', '.join(category_counts)})")
+    locusts = abyss_locusts(source)
+    for code, categories in languages.items():
+        categories["abyss_descriptions"] = abyss_descriptions(locusts, categories, languages["en_us"], code)
     payload = {
         "format": 1,
         "source": "https://github.com/wofsauge/External-Item-Descriptions",
@@ -287,7 +352,22 @@ def main() -> int:
         "game_version_name": "Repentance",
         "compatible_isaac_version": "1.7.9b",
         "languages": languages,
+        "abyss_locusts": locusts,
+        "black_feather_metadata": black_feather_metadata(source),
     }
+    if (source / "features/eid_conditionals.lua").is_file():
+        payload["context_rules"], payload["health_amounts"], payload["healing_items"] = context_rules(source)
+        payload["weapon_rules"] = weapon_rules(source)
+        payload["character_metadata"] = character_metadata(source)
+        payload["car_battery_metadata"] = battery_metadata(source)
+        payload["luck_formulas"] = luck_formulas(source)
+        native_rules = (source / "features/eid_data.lua").read_text(encoding="utf-8-sig")
+        payload["golden_trinket_data"] = context_table(native_rules,"GoldenTrinketData")
+        xml_data = source / "features/eid_xmldata.lua"
+        if xml_data.is_file():
+            payload["pill_metadata"] = context_table(xml_data.read_text(encoding="utf-8-sig"), "pillMetadata")
+        for categories in languages.values():
+            categories["greed_no_effect_notes"] = greed_no_effect_notes(categories, payload["context_rules"])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"imported descriptions ({'; '.join(counts)}) into {output}")

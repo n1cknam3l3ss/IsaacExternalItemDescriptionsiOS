@@ -20,7 +20,30 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 @interface EIDPickupIdentity : NSObject
 @property(nonatomic, readonly) NSInteger variant;
 @property(nonatomic, readonly) NSInteger subtype;
+// Native character closest to this pickup, or -1 when unavailable.
+@property(nonatomic, readonly) NSInteger playerType;
+@property(nonatomic, readonly) NSInteger playerIndex;
+// Original native color/horse bit, independent of the player-adjusted effect.
+@property(nonatomic, readonly) NSInteger rawPillSubtype;
+// Fresh native HasCollectible flags used for this exact effect query. -1 when
+// unavailable, zero when none are owned; see EIDPillPolicy.h.
+@property(nonatomic, readonly) NSInteger pillModifiers;
+@property(nonatomic, copy, readonly) NSDictionary *pickupContext;
 - (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype;
+- (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype
+                      playerType:(NSInteger)playerType;
+- (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype
+                      playerType:(NSInteger)playerType playerIndex:(NSInteger)playerIndex;
+- (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype
+                      playerType:(NSInteger)playerType playerIndex:(NSInteger)playerIndex
+                  rawPillSubtype:(NSInteger)rawPillSubtype;
+- (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype
+                      playerType:(NSInteger)playerType playerIndex:(NSInteger)playerIndex
+                  rawPillSubtype:(NSInteger)rawPillSubtype pillModifiers:(NSInteger)pillModifiers;
+- (instancetype)initWithVariant:(NSInteger)variant subtype:(NSInteger)subtype
+                      playerType:(NSInteger)playerType playerIndex:(NSInteger)playerIndex
+                  rawPillSubtype:(NSInteger)rawPillSubtype pillModifiers:(NSInteger)pillModifiers
+                   pickupContext:(NSDictionary *)pickupContext;
 @end
 
 @interface EIDPlayerStats : NSObject
@@ -43,6 +66,10 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 @property(atomic, readonly, getter=isPaused) BOOL paused;
 @property(atomic, readonly) uint32_t runSeed;
 @property(atomic, readonly) NSUInteger runCounter;
+@property(atomic, readonly) NSInteger primaryPlayerType;
+// 0 normal, 1 hard, 2 Greed, 3 Greedier; -1 when unavailable.
+@property(atomic, readonly) NSInteger gameDifficulty;
+@property(atomic, copy, readonly) NSDictionary *descriptionState;
 @property(atomic, readonly, getter=isOwnedCollectibleStateAvailable) BOOL ownedCollectibleStateAvailable;
 @property(atomic, readonly, getter=isInventoryStateAvailable) BOOL inventoryStateAvailable;
 @property(atomic, readonly, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
@@ -56,6 +83,25 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 - (void)start;
 - (NSArray<EIDPickupIdentity *> *)currentDescribablePickups;
 - (NSArray<EIDPickupIdentity *> *)currentInventoryItems;
+- (NSArray<EIDPickupIdentity *> *)currentSmeltedTrinkets;
+// Main-thread-only, read-only native GetPillEffect adapter. Revalidates the live
+// player vector; never invokes game code from the background memory scanner.
+- (EIDPickupIdentity *)resolvedPillIdentity:(EIDPickupIdentity *)identity;
+// Main-thread-only native Spindown availability query. It uses the same flags
+// as the real iOS item effect; collection-page flags are not unlock state.
+- (EIDPickupIdentity *)resolvedSpindownIdentity:(EIDPickupIdentity *)identity;
+// Main-thread-only, read-only native Wild Card / Vurp history. Does not run
+// either effect, consume RNG, or infer use from pocket inventory changes.
+- (EIDPickupIdentity *)resolvedRepeatIdentity:(EIDPickupIdentity *)identity;
+// Main-thread snapshot of a validated visible pedestal's native collectible
+// cycle. No effect call, RNG advance or temporal sampling is involved.
+- (EIDPickupIdentity *)resolvedCollectibleCycleIdentity:(EIDPickupIdentity *)identity;
+// Read-only main-thread inventory/history adapters for The Stars? and Black
+// Feather. Metadata contains only the bounded upstream Black Feather ID lists.
+- (EIDPickupIdentity *)resolvedInventoryPreviewIdentity:(EIDPickupIdentity *)identity
+                                blackFeatherMetadata:(NSDictionary *)metadata;
+// Normalized collectible/trinket identities for conditional descriptions.
+- (NSSet<NSString *> *)currentOwnedItemKeys;
 - (NSInteger)ownedCollectibleCountForID:(NSInteger)collectibleID;
 - (NSInteger)transformationCollectibleCountForID:(NSInteger)collectibleID;
 - (NSInteger)nativeTransformationCounterForFormID:(NSInteger)formID;
