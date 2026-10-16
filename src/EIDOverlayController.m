@@ -658,7 +658,6 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
                     self.descriptionNeedsRefresh = YES;
                 }
             }
-            }
             NSString *progressSignature = [[EIDTransformationProgress shared]
                 progressSignatureForPickups:pickups];
             NSArray *ownedKeys = [[[self.probe currentOwnedItemKeys] allObjects]
@@ -894,9 +893,6 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
         else if (item.variant == EIDPickupVariantTrinket) [trinkets addObject:item];
         else [pockets addObject:item];
     }
-
-    NSArray<EIDPickupIdentity *> *heldTrinkets = self.probe.heldTrinketItems ?: @[];
-    NSArray<EIDPickupIdentity *> *smeltedTrinkets = self.probe.smeltedTrinketItems ?: @[];
 
     BOOL russian = [self.store.languageCode isEqualToString:@"ru"];
     CGFloat width = self.inventoryScrollView.bounds.size.width;
@@ -1245,7 +1241,6 @@ static NSString *EIDGameResourcePath(NSString *relativePath) {
     detail = EIDAdvancedDescription(detail, pickup.variant, displaySubtype, self.probe.gameDifficulty, owned, context);
     detail = EIDCollectionDescription(detail, pickup.variant, displaySubtype, context);
     return detail;
-}
 }
 
 - (void)renderPickups:(NSArray<EIDPickupIdentity *> *)pickups {

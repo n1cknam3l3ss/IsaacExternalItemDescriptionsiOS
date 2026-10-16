@@ -221,7 +221,6 @@ static void AppendMarkup(NSMutableAttributedString *output, NSString *text, UIFo
     if (cursor < text.length) [output appendAttributedString:[[NSAttributedString alloc]
         initWithString:[text substringFromIndex:cursor] attributes:Attrs(font,color,scale)]];
 }
-}
 
 @interface NSObject(EIDParityMethods)
 -(void)eid_parity_renderPickups:(NSArray<EIDPickupIdentity*>*)pickups;-(void)eid_parity_attachOverlayIfNeeded;-(void)eid_parity_toggle:(UIButton*)sender;-(void)eid_parity_slider:(UISlider*)slider;-(void)eid_parity_refreshButtons;

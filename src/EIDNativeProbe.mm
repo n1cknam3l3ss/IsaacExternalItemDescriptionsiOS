@@ -329,7 +329,6 @@ constexpr uint32_t kGoldenPillColor = 14;
 constexpr size_t kGamePauseMenuStateOffset = 0x10dfd8;
 
 struct VMPickup {
-    vm_address_t address = 0;
     int32_t variant = 0;
     int32_t subtype = 0;
     float x = 0;
@@ -626,6 +625,40 @@ static bool ReadPickupHistory(vm_address_t player,
     // during copying. Main-thread resolution re-reads it before any preview.
     return ReadOwnTaskMemory(player+kPlayerPickupHistoryOffset,&after,sizeof(after)) &&
         span.begin == after.begin && span.end == after.end && span.capacity == after.capacity;
+}
+
+static bool ReadPlayerStats(
+    vm_address_t playerAddress,
+    NSInteger playerType,
+    EIDPlayerStats *stats) {
+    float moveSpeed = 0;
+    float maxFireDelay = 0;
+    float damage = 0;
+    float tearRange = 0;
+    int32_t coins = 0;
+    int32_t bombs = 0;
+    int32_t keys = 0;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerMoveSpeedOffset, &moveSpeed, sizeof(moveSpeed))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerMaxFireDelayOffset, &maxFireDelay, sizeof(maxFireDelay))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerDamageOffset, &damage, sizeof(damage))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerTearRangeOffset, &tearRange, sizeof(tearRange))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerCoinsOffset, &coins, sizeof(coins))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerBombsOffset, &bombs, sizeof(bombs))) return false;
+    if (!ReadOwnTaskMemory(playerAddress + kPlayerKeysOffset, &keys, sizeof(keys))) return false;
+
+    if (moveSpeed < 0.0f || moveSpeed > 50.0f) return false;
+    if (damage < 0.0f || damage > 100000.0f) return false;
+    if (coins < 0 || coins > 9999 || bombs < 0 || bombs > 9999 || keys < 0 || keys > 9999) return false;
+
+    stats.playerType = playerType;
+    stats.moveSpeed = moveSpeed;
+    stats.maxFireDelay = maxFireDelay;
+    stats.damage = damage;
+    stats.tearRange = tearRange;
+    stats.coins = coins;
+    stats.bombs = bombs;
+    stats.keys = keys;
+    return true;
 }
 
 static NSDictionary *ReadDescriptionStats(vm_address_t player) {
@@ -1084,7 +1117,7 @@ static bool IsDescribableVariant(int32_t variant) {
         variant == EIDPickupVariantSacrificeRoom;
 }
 
-static void AddVMPickup(VMRegionResult& result, vm_address_t address, int32_t variant, int32_t subtype,
+static void AddVMPickup(VMRegionResult& result, int32_t variant, int32_t subtype,
                         float x, float y, bool hasPosition,
                         bool isShopItem = false, int32_t optionsPickupIndex = 0,
                         int32_t rawPillSubtype = 0, int32_t flipID = 0,
@@ -1149,7 +1182,7 @@ static bool ResolveSacrificeRoomSpikes(const ScanContext& context,
         float gridX = 40.0f + 40.0f * static_cast<float>(gridIndex % roomGridWidth);
         float gridY = 80.0f + 40.0f * static_cast<float>(gridIndex / roomGridWidth);
         int32_t payout = varData >= 11 ? 12 : varData + 1;
-        AddVMPickup(result, gridEntity, EIDPickupVariantSacrificeRoom, payout,
+        AddVMPickup(result, EIDPickupVariantSacrificeRoom, payout,
                     gridX, gridY, true);
     }
     return true;
@@ -1307,7 +1340,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
                 memcpy(&collectible, bytes + offset + kCranePrizeCollectibleOffset,
                        sizeof(collectible));
                 if (collectible > 0 && collectible <= 4096) {
-                    AddVMPickup(result, referenceAddress, EIDPickupVariantCollectible, collectible,
+                    AddVMPickup(result, EIDPickupVariantCollectible, collectible,
                                 x, y, positionAvailable);
                 }
             }
@@ -1324,7 +1357,7 @@ static void ScanVMCopy(const ScanContext& context, const uint8_t *bytes, size_t 
             }
             if (activeObject && identity[0] == 1000 && identity[1] == 76 &&
                 identity[2] >= 0 && identity[2] < 6) {
-                AddVMPickup(result, referenceAddress, EIDPickupVariantDiceRoom, identity[2] + 1,
+                AddVMPickup(result, EIDPickupVariantDiceRoom, identity[2] + 1,
                             x, y, positionAvailable);
             }
         }
@@ -1555,10 +1588,8 @@ static NSSet<NSNumber *> *LoadActiveCollectibleIdentifiers(void) {
 @property(atomic, getter=isTransformationStateAvailable) BOOL transformationStateAvailable;
 @property(atomic, getter=isSuperBumActive) BOOL superBumActive;
 @property(atomic, getter=isMomsHandPresent) BOOL momsHandPresent;
-@property(atomic) NSInteger primaryPlayerType;
 @property(atomic, strong, nullable) EIDPlayerStats *primaryPlayerStats;
 @property(atomic, copy) NSArray<EIDPickupIdentity *> *heldTrinketItems;
-@property(atomic, copy) NSArray<EIDPickupIdentity *> *smeltedTrinketItems;
 @property(nonatomic, strong) NSArray<EIDPickupIdentity *> *lastPickups;
 @property(atomic, copy) NSArray<EIDPickupIdentity *> *inventoryItems;
 @property(nonatomic, strong) NSDictionary<NSNumber *, NSNumber *> *ownedCollectibleCounts;
