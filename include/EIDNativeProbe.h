@@ -76,7 +76,6 @@ typedef NS_ENUM(NSInteger, EIDPickupVariant) {
 @property(atomic, readonly, getter=isSuperBumActive) BOOL superBumActive;
 @property(atomic, readonly, getter=isMomsHandPresent) BOOL momsHandPresent;
 @property(atomic) uintptr_t primaryPlayerAddress;
-@property(atomic, readonly) NSInteger primaryPlayerType;
 @property(atomic, readonly, nullable) EIDPlayerStats *primaryPlayerStats;
 @property(atomic, readonly) NSArray<EIDPickupIdentity *> *heldTrinketItems;
 @property(atomic, readonly) NSArray<EIDPickupIdentity *> *smeltedTrinketItems;
